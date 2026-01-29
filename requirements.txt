@@ -1,0 +1,9 @@
+streamlit
+pandas
+numpy
+networkx
+causalnex
+causallearn
+lingam
+joblib
+scipy
