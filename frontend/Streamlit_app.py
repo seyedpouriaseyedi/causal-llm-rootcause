@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from preprocessing import run_preprocessing
 
 # === BACKEND CONFIG ===
