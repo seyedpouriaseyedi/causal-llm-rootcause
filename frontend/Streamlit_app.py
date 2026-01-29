@@ -8,8 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "b
 from preprocessing import run_preprocessing
 
 # === BACKEND CONFIG ===
-BACKEND_URL = "https://your-backend.onrender.com/discover"
-
+BACKEND_URL = "http://localhost:8000/discover"
 
 # === STREAMLIT APP ===
 st.set_page_config(page_title="Causal Discovery App", layout="wide")
