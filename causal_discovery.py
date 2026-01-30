@@ -255,4 +255,4 @@ except Exception as e:
     outputs["LiNGAM"] = "FAILED"
     print(f"LiNGAM failed after {time.time() - start:.2f} seconds: {str(e)}")
 
-return outputs
+    return outputs
