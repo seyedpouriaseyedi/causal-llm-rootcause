@@ -102,7 +102,7 @@ def run_causal_discovery(df_clean: pd.DataFrame):
 
             return A.values
 
-        outs = Parallel(n_jobs=1)(
+        outs = Parallel(n_jobs=-1)(
             delayed(one_run)(k) for k in range(K_RUNS)
         )
 
