@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 from datetime import datetime
+import time
 
 from joblib import Parallel, delayed
 from causalnex.structure.notears import from_pandas
@@ -216,27 +217,42 @@ def run_causal_discovery(df_clean: pd.DataFrame):
 
         return graph_path
 
-    # =========================
-    # RUN ALL
-    # =========================
+# =========================
+# RUN ALL
+# =========================
 
-    outputs = {}
+outputs = {}
 
-    outputs["NOTEARS"] = run_notears()
+# NOTEARS
+start = time.time()
+outputs["NOTEARS"] = run_notears()
+print(f"NOTEARS finished in {time.time() - start:.2f} seconds")
 
-    try:
-        outputs["GES"] = run_ges()
-    except:
-        outputs["GES"] = "FAILED"
+# GES
+start = time.time()
+try:
+    outputs["GES"] = run_ges()
+    print(f"GES finished in {time.time() - start:.2f} seconds")
+except Exception as e:
+    outputs["GES"] = "FAILED"
+    print(f"GES failed after {time.time() - start:.2f} seconds: {str(e)}")
 
-    try:
-        outputs["PC"] = run_pc()
-    except:
-        outputs["PC"] = "FAILED"
+# PC
+start = time.time()
+try:
+    outputs["PC"] = run_pc()
+    print(f"PC finished in {time.time() - start:.2f} seconds")
+except Exception as e:
+    outputs["PC"] = "FAILED"
+    print(f"PC failed after {time.time() - start:.2f} seconds: {str(e)}")
 
-    try:
-        outputs["LiNGAM"] = run_lingam()
-    except:
-        outputs["LiNGAM"] = "FAILED"
+# LiNGAM
+start = time.time()
+try:
+    outputs["LiNGAM"] = run_lingam()
+    print(f"LiNGAM finished in {time.time() - start:.2f} seconds")
+except Exception as e:
+    outputs["LiNGAM"] = "FAILED"
+    print(f"LiNGAM failed after {time.time() - start:.2f} seconds: {str(e)}")
 
-    return outputs
+return outputs
