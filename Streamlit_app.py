@@ -15,6 +15,10 @@ from llm_phase.pipeline import (
     run_llm_and_validate,
 )
 
+from llm_phase.openai_client import generate_root_cause_report_json
+from llm_phase.openai_client import chat_grounded
+
+
 # =========================================
 # Session defaults (critical for tabs)
 # =========================================
@@ -603,35 +607,48 @@ with tab2:
     )
     st.text_area("Prompt to send to LLM", value=prompt, height=320)
 
-    # ---- Manual JSON paste mode (no API yet) ----
-    st.markdown("## LLM response (paste JSON here)")
-    st.caption("Paste the model's JSON output. Validator will enforce allowed vars/edges.")
-    llm_json_text = st.text_area("LLM JSON response", value="", height=250)
+    # ---- LLM (API) mode ----
+    st.markdown("## Generate report via API (no manual copy/paste)")
 
-    if st.button("Validate LLM JSON"):
+    model_choice = st.selectbox(
+        "LLM model",
+        options=["gpt-5-mini", "gpt-5.2"],
+        index=0,
+        help="gpt-5-mini is cheaper/faster; gpt-5.2 is stronger. (Both via Responses API.)"
+    )
+
+    if st.button("Run LLM via API + Validate", type="primary"):
         allowed_vars = set(payload.get("allowed_vars", []))
         allowed_edges = set((a, b) for a, b in payload.get("allowed_edges", []))
 
         try:
-            parsed = json.loads(llm_json_text)
+            with st.spinner("Calling LLM API..."):
+                report_json = generate_root_cause_report_json(prompt=prompt, model=model_choice)
+
+            # Reuse your existing validator exactly as-is:
             parsed_valid = run_llm_and_validate(
-                call_llm_fn=lambda _prompt: json.dumps(parsed),
-                prompt="(manual paste mode)",
+                call_llm_fn=lambda _prompt: json.dumps(report_json),
+                prompt=prompt,
                 allowed_vars=allowed_vars,
                 allowed_edges=allowed_edges,
             )
+
             st.success("LLM output is valid and compliant.")
             st.json(parsed_valid)
+
         except Exception as e:
-            st.error(f"Validation failed: {e}")
+            st.error(f"LLM API / validation failed: {e}")
+
 
 
 # ========================================= 
 # TAB 3 — LLM Q&A (Grounded) 
 # ========================================= 
+
+
 with tab3:
     st.markdown("---")
-    st.subheader("LLM Q&A (Grounded)")
+    st.subheader("LLM Q&A (Grounded) — Live Chat (API)")
 
     if st.session_state.get("cd_outputs") is None:
         st.info("Run **Causal Discovery** first (Tab 1).")
@@ -642,28 +659,55 @@ with tab3:
     var_types_ss = st.session_state.get("var_types_clean")
     llm_payload = st.session_state.get("llm_payload")
 
-    st.caption("This generates a grounded prompt using your outputs. Copy it into your LLM and paste the answer back (optional).")
-
-    question = st.text_area(
-        "Your question to the LLM",
-        value="Explain the strongest and most consistent relationships across algorithms. What should I monitor if Torque becomes anomalous?",
-        height=120
+    model_choice = st.selectbox(
+        "Chat model",
+        options=["gpt-5-mini", "gpt-5.2"],
+        index=0
     )
 
+    # Build / refresh grounded context
     context_pack = build_llm_context_pack(outputs, var_types_ss, llm_payload)
 
-    final_prompt = f"{context_pack}\n\nUSER QUESTION:\n{question}\n\nANSWER:\n"
+    if "qa_messages" not in st.session_state:
+        st.session_state["qa_messages"] = [
+            {"role": "system", "content": context_pack}
+        ]
+    else:
+        # Always keep system context up-to-date (in case you rebuild consensus)
+        st.session_state["qa_messages"][0] = {"role": "system", "content": context_pack}
 
-    st.markdown("### Prompt to copy into the LLM")
-    st.text_area("LLM Prompt", value=final_prompt, height=420)
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("Reset chat"):
+            st.session_state["qa_messages"] = [{"role": "system", "content": context_pack}]
+            st.rerun()
 
-    st.markdown("### Paste LLM answer here (optional)")
-    llm_answer = st.text_area("LLM Answer", value="", height=220)
+    # Show chat history (skip system)
+    for msg in st.session_state["qa_messages"][1:]:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
 
-    if st.button("Quick sanity check (optional)"):
-        # Very light check: just ensures answer isn't empty
-        if not llm_answer.strip():
-            st.warning("No answer pasted.")
-        else:
-            st.success("Answer pasted. If it seems hallucinated, tighten your question or build consensus first (Tab 2).")
+    user_text = st.chat_input("Ask about the graphs / candidates / evidence...")
+
+    if user_text:
+        st.session_state["qa_messages"].append({"role": "user", "content": user_text})
+
+        with st.chat_message("user"):
+            st.write(user_text)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Calling LLM API..."):
+                try:
+                    answer = chat_grounded(
+                        messages=st.session_state["qa_messages"],
+                        model=model_choice,
+                        verbosity="medium",
+                    )
+                except Exception as e:
+                    answer = f"API error: {e}"
+
+            st.write(answer)
+
+        st.session_state["qa_messages"].append({"role": "assistant", "content": answer})
+
 
