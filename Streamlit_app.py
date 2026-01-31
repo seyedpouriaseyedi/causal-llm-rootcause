@@ -35,10 +35,10 @@ def _show_file_links(paths: dict):
                 )
 
 def _maybe_show_png(alg_dir: str, png_name_hint: str):
-    # Display a png if it exists.
     png_path = os.path.join(alg_dir, png_name_hint)
     if os.path.exists(png_path):
-        st.image(png_path, caption=png_name_hint, use_container_width=True)
+        st.image(png_path, caption=png_name_hint, use_column_width=True)
+
 
 # -----------------------------
 # Upload
