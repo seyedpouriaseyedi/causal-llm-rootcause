@@ -136,30 +136,6 @@ def build_numeric_df(
     return df_num, list(df_num.columns), var_types
 
 
-def classify_variable_roles(df: pd.DataFrame) -> Dict[str, str]:
-    """
-    Notebook-style role detection (used by GES / PC / DAG-GNN in notebook):
-      - binary_outcome if nunique <= 2 or ratio < 0.02
-      - categorical if nunique <= 10 or ratio < 0.05
-      - continuous if numeric
-      - unknown otherwise
-    """
-    roles: Dict[str, str] = {}
-    n = len(df)
-    for col in df.columns:
-        nunique = df[col].nunique(dropna=True)
-        ratio = (nunique / n) if n > 0 else 0.0
-
-        if nunique <= 2 or ratio < 0.02:
-            roles[col] = "binary_outcome"
-        elif nunique <= 10 or ratio < 0.05:
-            roles[col] = "categorical"
-        elif pd.api.types.is_numeric_dtype(df[col]):
-            roles[col] = "continuous"
-        else:
-            roles[col] = "unknown"
-    return roles
-
 def classify_variable_roles_basic(df: pd.DataFrame) -> Dict[str, str]:
     """
     Notebook utility version (used by NOTEARS / DAG-GNN / PC):
@@ -186,8 +162,7 @@ def classify_variable_roles_basic(df: pd.DataFrame) -> Dict[str, str]:
 
 def classify_variable_roles_ratio(df: pd.DataFrame) -> Dict[str, str]:
     """
-    Notebook GES-cell version (ratio-based).
-    Keep it ONLY for GES if you want exact notebook behavior there.
+    GES-cell version (ratio-based).
     """
     roles: Dict[str, str] = {}
     n = len(df)
