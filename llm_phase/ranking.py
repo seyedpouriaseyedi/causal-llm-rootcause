@@ -19,7 +19,17 @@ def rank_root_causes(consensus_graph_path: str, target: str,
     G = nx.read_graphml(consensus_graph_path)
 
     if target not in G.nodes:
-        raise ValueError(f"Target '{target}' not found in consensus graph.")
+        return {
+            "candidates_path": None,
+            "top_paths_path": None,
+            "candidates_df": pd.DataFrame(),
+            "paths": {},
+            "skipped": True,
+            "reason": "target_not_in_graph",
+            "target": target,
+            "graph_nodes": list(G.nodes())[:50],
+        }
+
 
     # candidates = ancestors of target
     candidates = list(nx.ancestors(G, target))
