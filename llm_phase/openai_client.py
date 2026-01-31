@@ -7,8 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 def _get_api_key() -> Optional[str]:
-    # Prefer Streamlit secrets if present, otherwise env var.
-    # (We import streamlit lazily so this module still works outside Streamlit.)
     try:
         import streamlit as st  # type: ignore
         if "OPENAI_API_KEY" in st.secrets:
@@ -30,17 +28,23 @@ def _client() -> OpenAI:
 # -----------------------------
 # Structured output schema
 # -----------------------------
+class Cause(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    variable: str
+    causal_chain: List[str] = Field(min_length=2)
+
+
 class RootCauseReport(BaseModel):
     """
-    Matches your validator expectation (top-level keys).
-    Keep this strict to avoid random extra keys.
+    Must match validator-required keys.
     """
     model_config = ConfigDict(extra="forbid")
 
     target: str
     incident_index: int
-    top_cause: str
-    alternatives: List[str] = Field(default_factory=list)
+    top_cause: Cause
+    alternatives: List[Cause] = Field(default_factory=list)
     recommended_actions: List[str] = Field(default_factory=list)
     validation_tests: List[str] = Field(default_factory=list)
     limitations: List[str] = Field(default_factory=list)
@@ -50,25 +54,17 @@ def generate_root_cause_report_json(
     prompt: str,
     model: str = "gpt-5-mini",
 ) -> Dict[str, Any]:
-    """
-    Calls OpenAI with Structured Outputs so the model MUST return a JSON object
-    matching RootCauseReport. This avoids your users pasting the wrong JSON.
-    """
     client = _client()
 
-    # Responses API + Pydantic structured outputs:
-    # OpenAI docs: client.responses.parse(..., text_format=YourPydanticModel)
-    # :contentReference[oaicite:2]{index=2}
     resp = client.responses.parse(
         model=model,
         input=[
-            {"role": "system", "content": "Return ONLY the JSON object that matches the schema."},
+            {"role": "system", "content": "Return ONLY valid JSON that matches the required schema. No extra keys."},
             {"role": "user", "content": prompt},
         ],
         text_format=RootCauseReport,
     )
 
-    # Parsed Pydantic object:
     report_obj: RootCauseReport = resp.output_parsed
     return report_obj.model_dump()
 
@@ -78,24 +74,18 @@ def chat_grounded(
     model: str = "gpt-5-mini",
     verbosity: str = "medium",
 ) -> str:
-    """
-    Normal chat call (no schema). Uses Responses API.
-    """
     client = _client()
 
     resp = client.responses.create(
         model=model,
         input=messages,
         text={"verbosity": verbosity},
-        reasoning={"effort": "none"},  # fast + cheap for chat
+        reasoning={"effort": "none"},
     )
 
-    # The SDK provides helpers, but safest is to extract text from outputs.
-    # We'll use output_text if present, else fallback.
     if hasattr(resp, "output_text") and resp.output_text:
         return resp.output_text
 
-    # Fallback extraction
     out = []
     for item in getattr(resp, "output", []) or []:
         if item.get("type") == "message":
