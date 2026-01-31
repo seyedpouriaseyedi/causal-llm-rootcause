@@ -23,10 +23,10 @@ def generate_root_cause_report_inputs(
 ) -> dict:
     """
     Deterministic pre-LLM synthesis:
-      - normalize edges
-      - build consensus graph
-      - rank candidates toward target
-      - compute incident evidence for top candidates
+      1) normalize edges from algorithms
+      2) build consensus graph
+      3) rank candidates toward target
+      4) build incident evidence for top candidates
     """
     os.makedirs(work_dir, exist_ok=True)
 
@@ -34,11 +34,11 @@ def generate_root_cause_report_inputs(
     consensus_dir = os.path.join(work_dir, "consensus")
     ranking_dir = os.path.join(work_dir, "ranking")
 
+    # 1) normalize
     norm_paths = normalize_edges_from_outputs(outputs, norm_dir)
 
-    # IMPORTANT: add all dataset columns as nodes so target exists even if no edges touch it
+    # 2) consensus (add all variables as nodes so target exists even with no edges)
     all_vars = list(df_clean.columns)
-
     cons = build_consensus_edges(
         norm_paths,
         consensus_dir,
@@ -47,6 +47,7 @@ def generate_root_cause_report_inputs(
         all_variables=all_vars,
     )
 
+    # 3) ranking (safe even if no paths exist)
     ranked = rank_root_causes(
         cons["consensus_graph_path"],
         target,
@@ -54,19 +55,32 @@ def generate_root_cause_report_inputs(
         max_path_len=max_path_len,
     )
 
-    # allowed sets come from consensus graph (nodes always exist now)
+    # Allowed sets from consensus graph
     G = nx.read_graphml(cons["consensus_graph_path"])
     allowed_vars = set(G.nodes())
     allowed_edges = set((u, v) for u, v in G.edges())
 
-    # top candidates for evidence (if ranking empty, evidence will be empty)
-    cand_df = ranked.get("candidates_df")
+    # Load ranked candidates (if exists) and choose top candidates for evidence
+    cand_path = ranked.get("candidates_path")
+    cand_df = None
+    if cand_path and os.path.exists(cand_path):
+        try:
+            cand_df = pd.read_csv(cand_path)
+        except Exception:
+            cand_df = None
+
     if cand_df is not None and (not cand_df.empty):
         top_candidates = cand_df.head(5)["candidate"].tolist()
     else:
         top_candidates = []
 
-    evidence = build_incident_evidence(df_clean, incident_index, top_candidates, target)
+    # 4) evidence
+    evidence = build_incident_evidence(
+        df_clean=df_clean,
+        incident_index=int(incident_index),
+        variables=top_candidates,
+        target=target,
+    )
 
     return {
         "norm_paths": norm_paths,
@@ -75,6 +89,13 @@ def generate_root_cause_report_inputs(
             "candidates_path": ranked.get("candidates_path"),
             "top_paths_path": ranked.get("top_paths_path"),
             "top_candidates": top_candidates,
+        },
+        "ranking_meta": {  # ✅ makes Streamlit messaging easier
+            "skipped": bool(ranked.get("skipped", False)),
+            "reason": ranked.get("reason", None),
+            "target": target,
+            "n_graph_edges": ranked.get("n_graph_edges", None),
+            "n_graph_nodes": ranked.get("n_graph_nodes", None),
         },
         "allowed_vars": sorted(list(allowed_vars)),
         "allowed_edges": sorted([[a, b] for (a, b) in allowed_edges]),
@@ -101,16 +122,18 @@ def build_prompt(prompt_template_path: str, payload: dict, target: str, incident
     else:
         top_paths_json = "{}"
 
-    allowed_edges_lines = "\n".join([f"{a} -> {b}" for a, b in (tuple(x) for x in payload["allowed_edges"])])
+    allowed_edges_lines = "\n".join(
+        [f"{a} -> {b}" for a, b in (tuple(x) for x in payload.get("allowed_edges", []))]
+    )
 
     prompt = tmpl.format(
         target=target,
         incident_index=incident_index,
-        allowed_variables="\n".join(payload["allowed_vars"]),
+        allowed_variables="\n".join(payload.get("allowed_vars", [])),
         allowed_edges=allowed_edges_lines,
         ranked_candidates_table=ranked_candidates_table,
         top_paths_json=top_paths_json,
-        incident_evidence_json=json.dumps(payload["incident_evidence"], indent=2),
+        incident_evidence_json=json.dumps(payload.get("incident_evidence", {}), indent=2),
     )
     return prompt
 
