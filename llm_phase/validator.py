@@ -1,3 +1,4 @@
+# llm_phase/validator.py
 import json
 from typing import Any, Dict, List, Set, Tuple
 
@@ -46,19 +47,19 @@ def _validate_cause_obj(
     if not isinstance(chain, list) or len(chain) < 2 or any(not isinstance(x, str) for x in chain):
         raise ValueError(f"{field_name}.causal_chain must be a list of >=2 strings")
 
-    # Must start at the stated variable and end at the report target
+    # must start with cause var and end at target
     if chain[0] != var:
         raise ValueError(f"{field_name}.causal_chain must start with variable '{var}' (got '{chain[0]}')")
 
     if chain[-1] != target:
         raise ValueError(f"{field_name}.causal_chain must end with target '{target}' (got '{chain[-1]}')")
 
-    # Variables must be allowed
+    # nodes must be allowed
     for node in chain:
         if node not in allowed_vars:
             raise ValueError(f"{field_name}.causal_chain uses forbidden variable: {node}")
 
-    # Edges must be allowed
+    # directed edges must be allowed
     for a, b in zip(chain[:-1], chain[1:]):
         if (a, b) not in allowed_edges:
             raise ValueError(f"{field_name}.causal_chain uses forbidden edge: {a} -> {b}")
