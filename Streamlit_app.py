@@ -26,14 +26,14 @@ if "var_types_clean" not in st.session_state:
     st.session_state["var_types_clean"] = None
 if "llm_payload" not in st.session_state:
     st.session_state["llm_payload"] = None
-
+if "llm_work_dir" not in st.session_state:
+    st.session_state["llm_work_dir"] = None
 
 # =========================================
 # Streamlit config
 # =========================================
 st.set_page_config(page_title="Causal Discovery App", layout="wide")
 st.title("Causal Discovery App")
-
 
 # =========================================
 # Helpers
@@ -45,7 +45,6 @@ def _safe_read_csv(path: str) -> pd.DataFrame | None:
     except Exception:
         return None
     return None
-
 
 def _show_file_links(paths: dict):
     """Render download buttons for any existing files in a dict."""
@@ -61,17 +60,14 @@ def _show_file_links(paths: dict):
                     key=f"dl_{k}_{fname}"
                 )
 
-
 def _maybe_show_png(alg_dir: str, png_name_hint: str):
     png_path = os.path.join(alg_dir, png_name_hint)
     if os.path.exists(png_path):
         st.image(png_path, caption=png_name_hint, use_column_width=True)
 
-
 def parse_exclude_vars(txt: str):
     items = [x.strip() for x in txt.split(",") if x.strip()]
     return set(items) if items else None
-
 
 def parse_invalid_edges(txt: str):
     edges = set()
@@ -83,7 +79,6 @@ def parse_invalid_edges(txt: str):
         if len(parts) == 2 and parts[0] and parts[1]:
             edges.add((parts[0], parts[1]))
     return edges if edges else None
-
 
 # =========================================
 # Upload + preprocessing (shared by both tabs)
@@ -121,12 +116,10 @@ if var_types_clean is None:
 else:
     st.json(var_types_clean)
 
-
 # =========================================
 # Tabs
 # =========================================
 tab1, tab2 = st.tabs(["Causal Discovery", "LLM Root Cause Report"])
-
 
 # =========================================
 # TAB 1 — Causal discovery
@@ -256,6 +249,7 @@ with tab1:
         st.session_state["df_clean"] = df_clean
         st.session_state["var_types_clean"] = var_types_clean
         st.session_state["llm_payload"] = None  # reset payload for new run
+        st.session_state["llm_work_dir"] = None  # reset work dir for new run
 
     # ---------------------------------
     # Show results from last run (if exists)
@@ -380,21 +374,36 @@ with tab2:
     outputs = st.session_state["cd_outputs"]
     df_clean_ss = st.session_state["df_clean"]
 
-    # ---- Choose target + incident ----
-    default_target = "Machine failure" if "Machine failure" in df_clean_ss.columns else df_clean_ss.columns[-1]
-    target = st.selectbox("Target variable", options=list(df_clean_ss.columns),
-                          index=list(df_clean_ss.columns).index(default_target))
+    # ---- Choose target (KPI to explain) ----
+    preferred_targets = ["Tool wear", "Torque", "Rotational speed", "Process temperature", "Air temperature"]
+    default_target = next((t for t in preferred_targets if t in df_clean_ss.columns), df_clean_ss.columns[-1])
 
+    target = st.selectbox(
+        "Target variable (KPI to explain)",
+        options=list(df_clean_ss.columns),
+        index=list(df_clean_ss.columns).index(default_target)
+    )
+
+    # ---- Incident selection (row OR anomaly-based) ----
     st.markdown("### Select an incident")
-    if target in df_clean_ss.columns and df_clean_ss[target].nunique(dropna=True) <= 2:
-        fail_rows = df_clean_ss.index[df_clean_ss[target] == 1].tolist()
-        mode = st.radio("Incident pool", ["Failures only (target=1)", "All rows"], horizontal=True)
-        if mode.startswith("Failures") and len(fail_rows) > 0:
-            incident_index = st.selectbox("Incident index", options=fail_rows)
-        else:
-            incident_index = st.number_input("Incident index (row number)", min_value=0, max_value=len(df_clean_ss)-1, value=0, step=1)
+    incident_mode = st.radio("Choose incident by:", ["Row index", "Top anomalies in target"], horizontal=True)
+
+    if incident_mode == "Row index":
+        incident_index = st.number_input(
+            "Incident index (row number)",
+            min_value=0,
+            max_value=len(df_clean_ss) - 1,
+            value=0,
+            step=1
+        )
     else:
-        incident_index = st.number_input("Incident index (row number)", min_value=0, max_value=len(df_clean_ss)-1, value=0, step=1)
+        x = df_clean_ss[target]
+        mu = float(x.mean())
+        sd = float(x.std()) if float(x.std()) > 1e-12 else 1.0
+        z_abs = ((x - mu) / sd).abs()
+        top_idx = z_abs.sort_values(ascending=False).head(50).index.tolist()
+        incident_index = st.selectbox("Select from top 50 anomalies", options=top_idx)
+        st.write("Anomaly z-score:", float((x.loc[incident_index] - mu) / sd))
 
     # ---- Consensus parameters ----
     st.markdown("### Consensus settings (deterministic)")
@@ -406,12 +415,14 @@ with tab2:
     with c3:
         max_path_len = st.number_input("Max path length", min_value=2, max_value=8, value=4, step=1)
 
-    # ---- Work dir ----
-    default_work_dir = os.path.join(
-        outputs.get("out_dir", "outputs_step2"),
-        f"llm_phase_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    )
-    work_dir = st.text_input("Work directory for LLM phase outputs", value=default_work_dir)
+    # ---- Work dir (stable) ----
+    if st.session_state.get("llm_work_dir") is None:
+        st.session_state["llm_work_dir"] = os.path.join(
+            outputs.get("out_dir", "outputs_step2"),
+            f"llm_phase_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+    work_dir = st.text_input("Work directory for LLM phase outputs", value=st.session_state["llm_work_dir"])
+    st.session_state["llm_work_dir"] = work_dir
 
     # ---- Build deterministic payload ----
     if st.button("Build consensus + ranking + evidence", type="primary"):
@@ -435,15 +446,29 @@ with tab2:
 
     payload = st.session_state["llm_payload"]
 
+    # ---- Load candidates safely ----
+    rank_info = payload.get("ranking", {})
+    cand_path = rank_info.get("candidates_path")
+
+    cand_df = None
+    if cand_path and os.path.exists(cand_path):
+        cand_df = pd.read_csv(cand_path)
+
+    if cand_df is not None and cand_df.empty:
+        st.warning(
+            "No causal paths to the target under current consensus thresholds. "
+            "Try: min_alg_count=1 and min_support_mean=0.20, or use a different KPI target."
+        )
+
     # ---- Show ranking + evidence ----
     st.markdown("## Ranked candidates")
-    cand_path = payload["ranking"]["candidates_path"]
-    if os.path.exists(cand_path):
-        cand_df = pd.read_csv(cand_path)
+    if cand_df is not None:
         st.dataframe(cand_df.head(15), use_container_width=True)
+    else:
+        st.info("Candidates file not available yet. Build consensus + ranking first.")
 
     st.markdown("## Incident evidence (top candidates)")
-    st.json(payload["incident_evidence"])
+    st.json(payload.get("incident_evidence", {}))
 
     st.markdown("## Consensus outputs")
     st.write("Consensus edges:", payload["consensus"]["consensus_edges_path"])
@@ -456,9 +481,15 @@ with tab2:
         "top_paths": payload["ranking"]["top_paths_path"],
     })
 
-    # ---- Build prompt ----
+    # ---- Build prompt (use absolute path to avoid FileNotFound) ----
     st.markdown("## Prompt (fixed function report)")
-    prompt_template_path = os.path.join("llm_phase", "prompt_template.txt")
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    prompt_template_path = os.path.join(BASE_DIR, "llm_phase", "prompt_template.txt")
+
+    if not os.path.exists(prompt_template_path):
+        st.error(f"Prompt template not found at: {prompt_template_path}")
+        st.stop()
+
     prompt = build_prompt(
         prompt_template_path=prompt_template_path,
         payload=payload,
@@ -473,11 +504,10 @@ with tab2:
     llm_json_text = st.text_area("LLM JSON response", value="", height=250)
 
     if st.button("Validate LLM JSON"):
-        allowed_vars = set(payload["allowed_vars"])
-        allowed_edges = set((a, b) for a, b in payload["allowed_edges"])
+        allowed_vars = set(payload.get("allowed_vars", []))
+        allowed_edges = set((a, b) for a, b in payload.get("allowed_edges", []))
 
         try:
-            # run_llm_and_validate expects a function that returns JSON string
             parsed = json.loads(llm_json_text)
             parsed_valid = run_llm_and_validate(
                 call_llm_fn=lambda _prompt: json.dumps(parsed),
