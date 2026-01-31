@@ -1,4 +1,3 @@
-# llm_phase/openai_client.py
 import os
 from typing import Any, Dict, List, Optional
 
@@ -7,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 def _get_api_key() -> Optional[str]:
+    # Prefer Streamlit secrets if present, otherwise env var.
     try:
         import streamlit as st  # type: ignore
         if "OPENAI_API_KEY" in st.secrets:
@@ -30,15 +30,11 @@ def _client() -> OpenAI:
 # -----------------------------
 class Cause(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
     variable: str
     causal_chain: List[str] = Field(min_length=2)
 
 
 class RootCauseReport(BaseModel):
-    """
-    Must match validator-required keys.
-    """
     model_config = ConfigDict(extra="forbid")
 
     target: str
@@ -54,12 +50,16 @@ def generate_root_cause_report_json(
     prompt: str,
     model: str = "gpt-5-mini",
 ) -> Dict[str, Any]:
+    """
+    Calls OpenAI with Structured Outputs so the model MUST return a JSON object
+    matching RootCauseReport.
+    """
     client = _client()
 
     resp = client.responses.parse(
         model=model,
         input=[
-            {"role": "system", "content": "Return ONLY valid JSON that matches the required schema. No extra keys."},
+            {"role": "system", "content": "Return ONLY valid JSON that matches the schema. No extra keys."},
             {"role": "user", "content": prompt},
         ],
         text_format=RootCauseReport,
@@ -74,6 +74,9 @@ def chat_grounded(
     model: str = "gpt-5-mini",
     verbosity: str = "medium",
 ) -> str:
+    """
+    Normal chat call (no schema). Uses Responses API.
+    """
     client = _client()
 
     resp = client.responses.create(
