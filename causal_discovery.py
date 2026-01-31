@@ -595,51 +595,144 @@ def run_causal_discovery(df_clean: pd.DataFrame, freq_threshold=0.3, k_runs=20):
         plt.savefig(os.path.join(ALG_DIR, "FINAL_graph_LiNGAM_Bootstrap.png"), dpi=300)
         plt.show()
 
+    # =============================== 
+    # DAG-GNN
+    # =============================== 
+    import torch
+    from daggnn import train_model_and_predict
+
+def run_daggnn():
+    ALG_NAME = "DAGGNN"
+    ALG_DIR = os.path.join(OUT_DIR, ALG_NAME)
+    os.makedirs(ALG_DIR, exist_ok=True)
+
+    X = df_num.values.astype(np.float32)
+    cols = list(df_num.columns)
+    n, p = X.shape
+
+    K_RUNS = 20
+    SAMPLE_FRAC = 0.7
+    FREQ_THRESHOLD = 0.3
+
+    def one_run(seed):
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+        idx = np.random.choice(n, int(n * SAMPLE_FRAC), replace=True)
+        x_k = X[idx]
+
+        adj_pred = train_model_and_predict(x_k, p)
+        return adj_pred
+
+    outs = Parallel(n_jobs=-1)(
+        delayed(one_run)(k) for k in range(K_RUNS)
+    )
+
+    stack = np.stack(outs)
+    freq = np.mean(stack, axis=0)
+
+    freq_df = pd.DataFrame(freq, index=cols, columns=cols)
+    freq_df.to_csv(os.path.join(ALG_DIR, "edge_frequency.csv"))
+
+    G = nx.DiGraph()
+    G.add_nodes_from(cols)
+
+    for i, u in enumerate(cols):
+        for j, v in enumerate(cols):
+            if freq[i, j] > FREQ_THRESHOLD:
+                G.add_edge(u, v, freq=float(freq[i, j]))
+
+    graph_path = os.path.join(ALG_DIR, "graph.graphml")
+    nx.write_graphml(G, graph_path)
+
+    return graph_path
 
 
-    # ---------------- PC ----------------
-    def run_pc():
-        ALG_DIR = os.path.join(OUT_DIR, "PC")
+
+
+
+    # ---------------- PC (Bootstrapped) ----------------
+    def run_pc_bootstrap():
+        ALG_NAME = "PC_BOOTSTRAP"
+        ALG_DIR = os.path.join(OUT_DIR, ALG_NAME)
         os.makedirs(ALG_DIR, exist_ok=True)
 
-        cg = pc(df_num.values, alpha=0.05, indep_test=fisherz)
-        adj = cg.G.graph
-
-        G = nx.DiGraph()
+        X = df_num.values
         cols = df_num.columns
+        n = X.shape[0]
 
-        for i in range(adj.shape[0]):
-            for j in range(adj.shape[1]):
-                if adj[i, j] == 1:
-                    G.add_edge(cols[i], cols[j])
+        K_RUNS = 20
+        SAMPLE_FRAC = 0.7
 
-        path = os.path.join(ALG_DIR, "graph.graphml")
-        nx.write_graphml(G, path)
+        def one_run():
+            idx = np.random.choice(n, int(n * SAMPLE_FRAC), replace=True)
+            X_sample = X[idx]
+            cg = pc(X_sample, alpha=0.05, indep_test=fisherz)
 
-        return path
+            adj = cg.G.graph
+            A = np.zeros((len(cols), len(cols)))
 
-    # ---------------- LiNGAM ----------------
-    def run_lingam():
-        ALG_DIR = os.path.join(OUT_DIR, "LiNGAM")
-        os.makedirs(ALG_DIR, exist_ok=True)
+            for i in range(adj.shape[0]):
+                for j in range(adj.shape[1]):
+                    if adj[i, j] == 1:
+                        A[i, j] = 1
 
-        model = DirectLiNGAM()
-        model.fit(df_num.values)
+        return A
 
-        B = model.adjacency_matrix_
+    outs = Parallel(n_jobs=-1)(
+        delayed(one_run)() for _ in range(K_RUNS)
+    )
 
-        G = nx.DiGraph()
-        cols = df_num.columns
+    freq = np.mean(np.stack(outs), axis=0)
+    freq_df = pd.DataFrame(freq, index=cols, columns=cols)
+    freq_df.to_csv(os.path.join(ALG_DIR, "edge_frequency.csv"))
 
-        for i, u in enumerate(cols):
-            for j, v in enumerate(cols):
-                if abs(B[i, j]) > 1e-4:
-                    G.add_edge(u, v)
+    G = nx.DiGraph()
+    G.add_nodes_from(cols)
 
-        path = os.path.join(ALG_DIR, "graph.graphml")
-        nx.write_graphml(G, path)
+    for i, u in enumerate(cols):
+        for j, v in enumerate(cols):
+            if freq[i, j] > 0.3:
+                G.add_edge(u, v, freq=float(freq[i, j]))
 
-        return path
+    graph_path = os.path.join(ALG_DIR, "FINAL_graph_PC_Bootstrap.graphml")
+    nx.write_graphml(G, graph_path)
+
+    return graph_path
+
+        def visualize_pc_graph(path, save_as_png=False):
+            if not os.path.exists(path):
+                print("Graph file not found.")
+                return
+
+            G = nx.read_graphml(path)
+
+            for u, v, d in G.edges(data=True):
+                d["freq"] = float(d.get("freq", 0.0))
+
+            pos = nx.spring_layout(G, seed=42)
+            plt.figure(figsize=(12, 7))
+            nx.draw_networkx_nodes(G, pos, node_color='lightcoral', node_size=800)
+            nx.draw_networkx_labels(G, pos, font_size=10)
+
+            edge_colors = ['green' for _ in G.edges()]
+            edge_widths = [2.5 * d["freq"] for _, _, d in G.edges(data=True)]
+            nx.draw_networkx_edges(G, pos, edge_color=edge_colors, width=edge_widths, arrowsize=20)
+
+            edge_labels = {(u, v): f"{d['freq']:.2f}" for u, v, d in G.edges(data=True)}
+            nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8)
+
+            plt.title("Final Causal DAG – PC (Bootstrapped)")
+            plt.axis("off")
+            plt.tight_layout()
+
+            if save_as_png:
+                plt.savefig(os.path.join(os.path.dirname(path), "PC_bootstrap_graph.png"))
+
+            plt.show()
+
+
+
 
     # ---------------- RUN ALL ----------------
     outputs = {}
@@ -658,18 +751,28 @@ def run_causal_discovery(df_clean: pd.DataFrame, freq_threshold=0.3, k_runs=20):
 
     try:
         start = time.time()
-        outputs["PC"] = run_pc()
-        print("PC:", time.time() - start)
-    except Exception as e:
-        outputs["PC"] = "FAILED"
-        print("PC FAILED:", e)
-
-    try:
-        start = time.time()
         outputs["LiNGAM"] = run_lingam()
         print("LiNGAM:", time.time() - start)
     except Exception as e:
         outputs["LiNGAM"] = "FAILED"
         print("LiNGAM FAILED:", e)
 
+    try:
+        start = time.time()
+        outputs["DAGGNN"] = run_daggnn()
+        print("DAGGNN:", time.time() - start)
+    except Exception as e:
+        outputs["DAGGNN"] = "FAILED"
+        print("DAGGNN FAILED:", e)
+
+
+    try:
+        start = time.time()
+        outputs["PC"] = run_pc_bootstrap(df_num)
+        print("PC done in", round(time.time() - start, 2), "seconds")
+    except Exception as e:
+        outputs["PC"] = "FAILED"
+        print("PC FAILED:", e)
+
+    
     return outputs
