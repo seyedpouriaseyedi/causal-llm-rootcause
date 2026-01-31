@@ -25,9 +25,15 @@ def generate_root_cause_report_inputs(outputs: dict, df_clean: pd.DataFrame,
     ranking_dir = os.path.join(work_dir, "ranking")
 
     norm_paths = normalize_edges_from_outputs(outputs, norm_dir)
-    cons = build_consensus_edges(norm_paths, consensus_dir,
-                                min_alg_count=min_alg_count,
-                                min_support_mean=min_support_mean)
+    all_vars = list(df_clean.columns)
+    cons = build_consensus_edges(
+        norm_paths,
+        consensus_dir,
+        min_alg_count=min_alg_count,
+        min_support_mean=min_support_mean,
+        all_variables=all_vars,
+    )
+
     ranked = rank_root_causes(cons["consensus_graph_path"], target, ranking_dir, max_path_len=max_path_len)
 
     # allowed sets
