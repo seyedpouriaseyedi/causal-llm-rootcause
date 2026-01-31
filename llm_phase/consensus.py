@@ -3,11 +3,15 @@ import json
 import pandas as pd
 import networkx as nx
 
-def build_consensus_edges(normalized_paths: dict, out_dir: str,
-                          min_alg_count: int = 2,
-                          min_support_mean: float = 0.30,
-                          all_variables: list | None = None
+def build_consensus_edges(
+    normalized_paths: dict,
+    out_dir: str,
+    min_alg_count: int = 2,
+    min_support_mean: float = 0.30,
+    conflict_penalty: float = 0.15,
+    all_variables: list | None = None
 ) -> dict:
+
     """
     Returns:
       - consensus_edges_path
@@ -15,6 +19,8 @@ def build_consensus_edges(normalized_paths: dict, out_dir: str,
       - consensus_summary_path
     """
     os.makedirs(out_dir, exist_ok=True)
+    conflict_penalty = float(conflict_penalty)
+
 
     frames = []
     for alg, path in normalized_paths.items():
@@ -54,7 +60,9 @@ def build_consensus_edges(normalized_paths: dict, out_dir: str,
     agg["edge_score"] = 0.7 * agg["support_mean"] + 0.3 * agg["agreement"]
 
     # apply conflict penalty
-    agg.loc[agg["conflict"] == True, "edge_score"] = agg.loc[agg["conflict"] == True, "edge_score"] - conflict_penalty
+    agg.loc[agg["conflict"], "edge_score"] = agg.loc[agg["conflict"], "edge_score"] - conflict_penalty
+
+
     agg["edge_score"] = agg["edge_score"].clip(lower=0.0)
 
     # filter
