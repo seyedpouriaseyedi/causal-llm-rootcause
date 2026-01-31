@@ -29,22 +29,22 @@ INCIDENT_EVIDENCE (z-scores / abnormal flags):
 {incident_evidence_json}
 
 Output JSON schema (MUST match exactly, no extra keys):
-{
+{{
   "target": "<TARGET_KPI>",
   "incident_index": <INCIDENT_INDEX>,
-  "top_cause": {
+  "top_cause": {{
     "variable": "<rank-1 candidate>",
     "causal_chain": ["<var1>", "<var2>", "...", "<TARGET_KPI>"]
-  },
+  }},
   "alternatives": [
-    {
+    {{
       "variable": "<candidate>",
       "causal_chain": ["<var1>", "<var2>", "...", "<TARGET_KPI>"]
-    }
+    }}
   ],
   "recommended_actions": ["<measurable action tied to variables>", "..."],
   "validation_tests": ["<test tied to causal chain>", "..."],
   "limitations": ["<uncertainty/limitations>", "..."]
-}
+}}
 
 Now produce the JSON only.
