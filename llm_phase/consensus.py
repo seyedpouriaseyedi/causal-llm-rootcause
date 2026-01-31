@@ -6,7 +6,7 @@ import networkx as nx
 def build_consensus_edges(normalized_paths: dict, out_dir: str,
                           min_alg_count: int = 2,
                           min_support_mean: float = 0.30,
-                          conflict_penalty: float = 0.15) -> dict:
+                          all_variables: list | None = None) -> dict:
     """
     Returns:
       - consensus_edges_path
@@ -69,6 +69,10 @@ def build_consensus_edges(normalized_paths: dict, out_dir: str,
 
     # build graph
     G = nx.DiGraph()
+                            
+    if all_variables is not None:
+    G.add_nodes_from(all_variables)
+                        
     for _, r in keep.iterrows():
         G.add_edge(
             r["source"], r["target"],
