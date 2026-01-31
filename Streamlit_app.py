@@ -65,6 +65,111 @@ def _maybe_show_png(alg_dir: str, png_name_hint: str):
     if os.path.exists(png_path):
         st.image(png_path, caption=png_name_hint, use_column_width=True)
 
+def _df_to_compact_text(df: pd.DataFrame, max_rows: int = 25) -> str:
+    if df is None or df.empty:
+        return "(empty)"
+    df2 = df.head(max_rows).copy()
+    return df2.to_csv(index=False)
+
+def _read_text_file(path: str) -> str:
+    try:
+        if path and os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read()
+    except Exception:
+        return ""
+    return ""
+
+def build_llm_context_pack(outputs: dict, var_types_clean: dict | None, llm_payload: dict | None) -> str:
+    """
+    Builds a grounded context pack from your causal discovery outputs + (optional) consensus/ranking artifacts.
+    Keep it short to avoid token blowup.
+    """
+    lines = []
+    lines.append("SYSTEM RULES:")
+    lines.append("- You are a grounded assistant. Use ONLY the data in CONTEXT below.")
+    lines.append("- If the answer is not supported by the context, say: 'Not enough information in the provided outputs.'")
+    lines.append("- Do NOT invent edges, variables, or numbers.")
+    lines.append("- When you claim something, cite which table/file section it came from (e.g., NOTEARS edges, LiNGAM edges, consensus_edges).")
+    lines.append("")
+
+    # Variable types
+    lines.append("CONTEXT: VARIABLE TYPES")
+    if var_types_clean:
+        # keep small
+        for k, v in list(var_types_clean.items())[:200]:
+            lines.append(f"- {k}: {v}")
+    else:
+        lines.append("(var_types_clean not provided)")
+    lines.append("")
+
+    runs = outputs.get("runs", {}) if outputs else {}
+
+    # Add top edges from each algorithm (CSV)
+    def add_edges_section(title: str, edges_path: str, max_rows: int = 30):
+        lines.append(f"CONTEXT: {title}")
+        df = _safe_read_csv(edges_path) if edges_path else None
+        if df is None or df.empty:
+            lines.append("(missing/empty)")
+        else:
+            # pick likely columns if exist
+            cols = [c for c in ["source", "target", "freq", "weight_median", "corr", "abs_weight_median"] if c in df.columns]
+            if cols:
+                df = df[cols]
+            lines.append(_df_to_compact_text(df, max_rows=max_rows))
+        lines.append("")
+
+    if "NOTEARS" in runs:
+        add_edges_section("NOTEARS edges (FINAL_edges_...csv)", runs["NOTEARS"].get("edges_path"))
+    if "LiNGAM" in runs:
+        add_edges_section("LiNGAM edges (FINAL_edges_...csv)", runs["LiNGAM"].get("edges_path"))
+    if "DAGGNN" in runs and not runs["DAGGNN"].get("skipped"):
+        add_edges_section("DAG-GNN edges (FINAL_edges_...csv)", runs["DAGGNN"].get("edges_path"))
+    if "PC" in runs and not runs["PC"].get("skipped"):
+        add_edges_section("PC edges (FINAL_edges_...csv)", runs["PC"].get("edges_path"))
+    if "GES" in runs:
+        # GES produces stable edges
+        add_edges_section("GES stable edges (STABLE_edges_GES.csv)", runs["GES"].get("stable_edges_path"))
+
+    # Optional: consensus/ranking if you built llm_payload
+    if llm_payload:
+        cons = llm_payload.get("consensus", {})
+        rank = llm_payload.get("ranking", {})
+
+        lines.append("CONTEXT: CONSENSUS EDGES (if available)")
+        cons_edges = cons.get("consensus_edges_path")
+        df = _safe_read_csv(cons_edges) if cons_edges else None
+        if df is None or df.empty:
+            lines.append("(missing/empty)")
+        else:
+            cols = [c for c in ["source","target","algo_count","support_mean","edge_score","conflict","algs"] if c in df.columns]
+            if cols:
+                df = df[cols]
+            lines.append(_df_to_compact_text(df, max_rows=40))
+        lines.append("")
+
+        lines.append("CONTEXT: RANKED CANDIDATES (if available)")
+        cand_path = rank.get("candidates_path")
+        df = _safe_read_csv(cand_path) if cand_path else None
+        if df is None or df.empty:
+            lines.append("(missing/empty)")
+        else:
+            lines.append(_df_to_compact_text(df, max_rows=30))
+        lines.append("")
+
+        lines.append("CONTEXT: TOP PATHS JSON (if available)")
+        top_paths_path = rank.get("top_paths_path")
+        top_paths_text = _read_text_file(top_paths_path) if top_paths_path else ""
+        if top_paths_text.strip():
+            # keep short: first ~4000 chars
+            lines.append(top_paths_text[:4000] + ("\n...(truncated)" if len(top_paths_text) > 4000 else ""))
+        else:
+            lines.append("(missing/empty)")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def parse_exclude_vars(txt: str):
     items = [x.strip() for x in txt.split(",") if x.strip()]
     return set(items) if items else None
@@ -119,7 +224,7 @@ else:
 # =========================================
 # Tabs
 # =========================================
-tab1, tab2 = st.tabs(["Causal Discovery", "LLM Root Cause Report"])
+tab1, tab2, tab3 = st.tabs(["Causal Discovery", "LLM Root Cause Report", "LLM Q&A (Grounded)"])
 
 # =========================================
 # TAB 1 — Causal discovery
@@ -519,3 +624,46 @@ with tab2:
             st.json(parsed_valid)
         except Exception as e:
             st.error(f"Validation failed: {e}")
+
+
+# ========================================= 
+# TAB 3 — LLM Q&A (Grounded) 
+# ========================================= 
+with tab3:
+    st.markdown("---")
+    st.subheader("LLM Q&A (Grounded)")
+
+    if st.session_state.get("cd_outputs") is None:
+        st.info("Run **Causal Discovery** first (Tab 1).")
+        st.stop()
+
+    outputs = st.session_state["cd_outputs"]
+    df_clean_ss = st.session_state.get("df_clean")
+    var_types_ss = st.session_state.get("var_types_clean")
+    llm_payload = st.session_state.get("llm_payload")
+
+    st.caption("This generates a grounded prompt using your outputs. Copy it into your LLM and paste the answer back (optional).")
+
+    question = st.text_area(
+        "Your question to the LLM",
+        value="Explain the strongest and most consistent relationships across algorithms. What should I monitor if Torque becomes anomalous?",
+        height=120
+    )
+
+    context_pack = build_llm_context_pack(outputs, var_types_ss, llm_payload)
+
+    final_prompt = f"{context_pack}\n\nUSER QUESTION:\n{question}\n\nANSWER:\n"
+
+    st.markdown("### Prompt to copy into the LLM")
+    st.text_area("LLM Prompt", value=final_prompt, height=420)
+
+    st.markdown("### Paste LLM answer here (optional)")
+    llm_answer = st.text_area("LLM Answer", value="", height=220)
+
+    if st.button("Quick sanity check (optional)"):
+        # Very light check: just ensures answer isn't empty
+        if not llm_answer.strip():
+            st.warning("No answer pasted.")
+        else:
+            st.success("Answer pasted. If it seems hallucinated, tighten your question or build consensus first (Tab 2).")
+
