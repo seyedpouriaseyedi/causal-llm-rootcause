@@ -71,7 +71,7 @@ def build_consensus_edges(normalized_paths: dict, out_dir: str,
     G = nx.DiGraph()
                             
     if all_variables is not None:
-    G.add_nodes_from(all_variables)
+        G.add_nodes_from(all_variables)
                         
     for _, r in keep.iterrows():
         G.add_edge(
