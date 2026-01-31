@@ -6,7 +6,8 @@ import networkx as nx
 def build_consensus_edges(normalized_paths: dict, out_dir: str,
                           min_alg_count: int = 2,
                           min_support_mean: float = 0.30,
-                          all_variables: list | None = None) -> dict:
+                          all_variables: list | None = None
+) -> dict:
     """
     Returns:
       - consensus_edges_path
