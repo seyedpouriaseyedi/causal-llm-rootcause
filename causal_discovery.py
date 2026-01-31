@@ -160,6 +160,51 @@ def classify_variable_roles(df: pd.DataFrame) -> Dict[str, str]:
             roles[col] = "unknown"
     return roles
 
+def classify_variable_roles_basic(df: pd.DataFrame) -> Dict[str, str]:
+    """
+    Notebook utility version (used by NOTEARS / DAG-GNN / PC):
+    - binary if nunique <= 2
+    - categorical if 2 < nunique <= 10
+    - continuous if numeric dtype
+    - other otherwise
+    """
+    roles: Dict[str, str] = {}
+    for col in df.columns:
+        nunique = df[col].nunique(dropna=True)
+        dtype = df[col].dtype
+
+        if nunique <= 2:
+            roles[col] = "binary"
+        elif 2 < nunique <= 10:
+            roles[col] = "categorical"
+        elif np.issubdtype(dtype, np.number):
+            roles[col] = "continuous"
+        else:
+            roles[col] = "other"
+    return roles
+
+
+def classify_variable_roles_ratio(df: pd.DataFrame) -> Dict[str, str]:
+    """
+    Notebook GES-cell version (ratio-based).
+    Keep it ONLY for GES if you want exact notebook behavior there.
+    """
+    roles: Dict[str, str] = {}
+    n = len(df)
+    for col in df.columns:
+        nunique = df[col].nunique(dropna=True)
+        ratio = (nunique / n) if n > 0 else 0.0
+
+        if nunique <= 2 or ratio < 0.02:
+            roles[col] = "binary_outcome"
+        elif nunique <= 10 or ratio < 0.05:
+            roles[col] = "categorical"
+        elif pd.api.types.is_numeric_dtype(df[col]):
+            roles[col] = "continuous"
+        else:
+            roles[col] = "unknown"
+    return roles
+
 
 def choose_discovery_vars(roles: Dict[str, str], keep_continuous_only: bool = True) -> List[str]:
     if keep_continuous_only:
@@ -457,7 +502,7 @@ def run_ges_bootstrap(df_num: pd.DataFrame, cfg: DiscoveryConfig) -> Dict[str, A
     run_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
     alg_dir = _ensure_out_dir(os.path.join(cfg.out_dir, f"{ALG_NAME}_{run_tag}"))
 
-    roles = classify_variable_roles(df_num)
+    roles = classify_variable_roles_ratio(df_num)
     subset_cols = choose_discovery_vars(roles, keep_continuous_only=cfg.ges_keep_continuous_only)
 
     if len(subset_cols) < 2:
@@ -715,12 +760,19 @@ def run_daggnn_bootstrap(
     print(f"\nRunning {ALG_NAME}...\nOutput directory: {alg_dir}")
 
     # Notebook variable selection: classify -> choose_discovery_vars(roles)
-    roles = classify_variable_roles(df_num)
+    roles = classify_variable_roles_basic(df_num)
     subset_cols = choose_discovery_vars(roles, keep_continuous_only=True)
 
     if len(subset_cols) < 2:
-        print(f"{ALG_NAME} skipped: Not enough continuous variables (need ≥2).")
-        return {"alg_dir": alg_dir, "skipped": True}
+    print(f"{ALG_NAME} skipped: Not enough continuous variables (need ≥2).")
+    return {
+        "alg_dir": alg_dir,
+        "skipped": True,
+        "reason": "not_enough_continuous_vars",
+        "n_selected": len(subset_cols),
+        "selected_vars": subset_cols,
+        "roles": roles,
+    }
 
     print(f"Bootstrapping DAG-GNN with stronger model (hidden_dim=128, iters=500, lam=0.0001)")
 
@@ -893,7 +945,7 @@ def run_pc_bootstrap(
     run_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
     alg_dir = _ensure_out_dir(os.path.join(cfg.out_dir, f"{ALG_NAME}_{run_tag}"))
 
-    roles = classify_variable_roles(df_num)
+    roles = classify_variable_roles_basic(df_num)
     subset_cols = [col for col, role in roles.items() if role == "continuous"]
 
     if len(subset_cols) < 2:
