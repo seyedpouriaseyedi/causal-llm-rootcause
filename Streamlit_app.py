@@ -1,4 +1,3 @@
-# Streamlit_app.py
 import os
 import json
 from datetime import datetime
@@ -19,7 +18,7 @@ from llm_phase.openai_client import generate_root_cause_report_json, chat_ground
 
 
 # =========================================
-# Session defaults (critical for tabs)
+# Session defaults
 # =========================================
 if "cd_outputs" not in st.session_state:
     st.session_state["cd_outputs"] = None
@@ -36,7 +35,7 @@ if "llm_payload_sig" not in st.session_state:
 if "run_id" not in st.session_state:
     st.session_state["run_id"] = datetime.now().strftime("%Y%m%d_%H%M%S")
 if "qa_messages" not in st.session_state:
-    st.session_state["qa_messages"] = None  # will be initialized in Tab 3
+    st.session_state["qa_messages"] = None
 
 
 # =========================================
@@ -59,7 +58,6 @@ def _safe_read_csv(path: str) -> pd.DataFrame | None:
 
 
 def _show_file_links(paths: dict):
-    """Render download buttons for any existing files in a dict."""
     for k, p in paths.items():
         if isinstance(p, str) and os.path.exists(p):
             fname = os.path.basename(p)
@@ -82,8 +80,7 @@ def _maybe_show_png(alg_dir: str, png_name_hint: str):
 def _df_to_compact_text(df: pd.DataFrame, max_rows: int = 25) -> str:
     if df is None or df.empty:
         return "(empty)"
-    df2 = df.head(max_rows).copy()
-    return df2.to_csv(index=False)
+    return df.head(max_rows).to_csv(index=False)
 
 
 def _read_text_file(path: str) -> str:
@@ -97,10 +94,6 @@ def _read_text_file(path: str) -> str:
 
 
 def build_llm_context_pack(outputs: dict, var_types_clean: dict | None, llm_payload: dict | None) -> str:
-    """
-    Builds a grounded context pack from your causal discovery outputs + (optional) consensus/ranking artifacts.
-    Keep it short to avoid token blowup.
-    """
     lines = []
     lines.append("SYSTEM RULES:")
     lines.append("- You are a grounded assistant. Use ONLY the data in CONTEXT below.")
@@ -109,7 +102,6 @@ def build_llm_context_pack(outputs: dict, var_types_clean: dict | None, llm_payl
     lines.append("- When you claim something, cite which table/file section it came from (e.g., NOTEARS edges, LiNGAM edges, consensus_edges).")
     lines.append("")
 
-    # Variable types
     lines.append("CONTEXT: VARIABLE TYPES")
     if var_types_clean:
         for k, v in list(var_types_clean.items())[:200]:
@@ -133,17 +125,16 @@ def build_llm_context_pack(outputs: dict, var_types_clean: dict | None, llm_payl
         lines.append("")
 
     if "NOTEARS" in runs:
-        add_edges_section("NOTEARS edges (FINAL_edges_...csv)", runs["NOTEARS"].get("edges_path"))
+        add_edges_section("NOTEARS edges", runs["NOTEARS"].get("edges_path"))
     if "LiNGAM" in runs:
-        add_edges_section("LiNGAM edges (FINAL_edges_...csv)", runs["LiNGAM"].get("edges_path"))
+        add_edges_section("LiNGAM edges", runs["LiNGAM"].get("edges_path"))
     if "DAGGNN" in runs and not runs["DAGGNN"].get("skipped"):
-        add_edges_section("DAG-GNN edges (FINAL_edges_...csv)", runs["DAGGNN"].get("edges_path"))
+        add_edges_section("DAG-GNN edges", runs["DAGGNN"].get("edges_path"))
     if "PC" in runs and not runs["PC"].get("skipped"):
-        add_edges_section("PC edges (FINAL_edges_...csv)", runs["PC"].get("edges_path"))
+        add_edges_section("PC edges", runs["PC"].get("edges_path"))
     if "GES" in runs:
-        add_edges_section("GES stable edges (STABLE_edges_GES.csv)", runs["GES"].get("stable_edges_path"))
+        add_edges_section("GES stable edges", runs["GES"].get("stable_edges_path"))
 
-    # Optional: consensus/ranking if you built llm_payload
     if llm_payload:
         cons = llm_payload.get("consensus", {})
         rank = llm_payload.get("ranking", {})
@@ -199,7 +190,7 @@ def parse_invalid_edges(txt: str):
 
 
 # =========================================
-# Upload + preprocessing (shared by both tabs)
+# Upload + preprocessing
 # =========================================
 file = st.file_uploader("Upload your CSV file", type=["csv"], key="uploader_csv")
 if file is None:
@@ -296,18 +287,8 @@ with tab1:
 
     st.markdown("---")
     st.subheader("PC Domain Filters (optional)")
-    exclude_vars_text = st.text_area(
-        "Exclude variables (comma-separated)",
-        value="",
-        help="Example: colA,colB,colC",
-        key="exclude_vars_text",
-    )
-    invalid_edges_text = st.text_area(
-        "Invalid directed edges (one per line as: source,target)",
-        value="",
-        help="Example line: ProductionVolume,DefectRate",
-        key="invalid_edges_text",
-    )
+    exclude_vars_text = st.text_area("Exclude variables (comma-separated)", value="", key="exclude_vars_text")
+    invalid_edges_text = st.text_area("Invalid directed edges (one per line as: source,target)", value="", key="invalid_edges_text")
     domain_exclude_vars = parse_exclude_vars(exclude_vars_text)
     domain_invalid_edges = parse_invalid_edges(invalid_edges_text)
 
@@ -317,23 +298,19 @@ with tab1:
             out_dir=out_dir,
             seed=int(seed),
 
-            # NOTEARS
             notears_k_runs=int(notears_k_runs),
             notears_sample_frac=float(notears_sample_frac),
             notears_edge_q=float(notears_edge_q),
             notears_freq_thr=float(notears_freq_thr),
 
-            # GES
             ges_boot_runs=int(ges_boot_runs),
             ges_boot_frac=float(ges_boot_frac),
             ges_stable_thr=float(ges_stable_thr),
             ges_keep_continuous_only=True,
 
-            # LiNGAM
             lingam_boot_runs=int(lingam_boot_runs),
             lingam_freq_thr=float(lingam_freq_thr),
 
-            # DAG-GNN
             daggnn_enabled=bool(daggnn_enabled),
             daggnn_boot_runs=int(daggnn_boot_runs),
             daggnn_edge_abs_thr=float(daggnn_edge_abs_thr),
@@ -341,12 +318,10 @@ with tab1:
             daggnn_iters=int(daggnn_iters),
             daggnn_hidden_dim=int(daggnn_hidden_dim),
 
-            # PC
             pc_boot_runs=int(pc_boot_runs),
             pc_alpha=float(pc_alpha),
             pc_freq_thr=float(pc_freq_thr),
 
-            # Plotting
             plot=bool(plot),
             save_plots=bool(save_plots),
         )
@@ -366,23 +341,16 @@ with tab1:
 
         st.success("Causal discovery completed!")
 
-        # Persist for tab2 and reruns
         st.session_state["cd_outputs"] = outputs
         st.session_state["df_clean"] = df_clean
         st.session_state["var_types_clean"] = var_types_clean
 
-        # Reset LLM state for new run
         st.session_state["llm_payload"] = None
         st.session_state["llm_payload_sig"] = None
         st.session_state["llm_work_dir"] = None
-
-        # New run id so work_dir can be stable per CD run
         st.session_state["run_id"] = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # Reset chat
         st.session_state["qa_messages"] = None
 
-    # Show results from last run
     outputs = st.session_state.get("cd_outputs")
     if outputs is None:
         st.info("No causal discovery results yet. Click **Run Causal Discovery** above.")
@@ -484,11 +452,11 @@ with tab1:
 
 
 # =========================================
-# TAB 2 — LLM Root Cause Report integration
+# TAB 2 — LLM Root Cause Report
 # =========================================
 with tab2:
     st.markdown("---")
-    st.subheader("LLM Root Cause Report (Fixed Function)")
+    st.subheader("LLM Root Cause Report (API + Validator)")
 
     if st.session_state.get("cd_outputs") is None:
         st.info("Run **Causal Discovery** first (Tab 1).")
@@ -544,7 +512,7 @@ with tab2:
     with c3:
         max_path_len = st.number_input("Max path length", min_value=2, max_value=8, value=4, step=1, key="tab2_max_path")
 
-    # Work dir (stable)
+    # Stable work dir per CD run
     if st.session_state.get("llm_work_dir") is None:
         st.session_state["llm_work_dir"] = os.path.join(
             outputs.get("out_dir", "outputs_step2"),
@@ -558,7 +526,7 @@ with tab2:
     )
     st.session_state["llm_work_dir"] = work_dir
 
-    # Payload signature guard (prevents stale payload mismatch)
+    # Payload signature guard
     current_sig = {
         "target": target,
         "incident_index": int(incident_index),
@@ -567,7 +535,6 @@ with tab2:
         "max_path_len": int(max_path_len),
         "work_dir": work_dir,
     }
-
     prev_sig = st.session_state.get("llm_payload_sig")
     if st.session_state.get("llm_payload") is not None and prev_sig != current_sig:
         st.session_state["llm_payload"] = None
@@ -575,7 +542,6 @@ with tab2:
         st.warning("Selections changed since last payload build. Please rebuild consensus + ranking.")
         st.stop()
 
-    # Build deterministic payload
     if st.button("Build consensus + ranking + evidence", type="primary", key="btn_build_payload"):
         with st.spinner("Building consensus graph and ranking candidates..."):
             payload = generate_root_cause_report_inputs(
@@ -598,33 +564,26 @@ with tab2:
 
     payload = st.session_state["llm_payload"]
 
-    # Load candidates safely
-    rank_info = payload.get("ranking", {})
-    cand_path = rank_info.get("candidates_path")
-
+    # Load candidates
     cand_df = None
+    cand_path = payload.get("ranking", {}).get("candidates_path")
     if cand_path and os.path.exists(cand_path):
         cand_df = pd.read_csv(cand_path)
 
-    if cand_df is not None and cand_df.empty:
-        st.warning(
-            "No causal paths to the target under current consensus thresholds. "
-            "Try: min_alg_count=1 and min_support_mean=0.20, or use a different KPI target."
-        )
-
-    # Show ranking + evidence
     st.markdown("## Ranked candidates")
-    if cand_df is not None:
-        st.dataframe(cand_df.head(15), use_container_width=True)
-    else:
-        st.info("Candidates file not available yet. Build consensus + ranking first.")
+    if cand_df is None:
+        st.error("Candidates file missing. Rebuild payload.")
+        st.stop()
+    if cand_df.empty:
+        st.error("No candidates found under current thresholds. Loosen thresholds or change target.")
+        st.stop()
+
+    st.dataframe(cand_df.head(15), use_container_width=True)
 
     st.markdown("## Incident evidence (top candidates)")
     st.json(payload.get("incident_evidence", {}))
 
     st.markdown("## Consensus outputs")
-    st.write("Consensus edges:", payload["consensus"]["consensus_edges_path"])
-    st.write("Consensus graph:", payload["consensus"]["consensus_graph_path"])
     _show_file_links({
         "consensus_edges": payload["consensus"]["consensus_edges_path"],
         "consensus_graph": payload["consensus"]["consensus_graph_path"],
@@ -657,7 +616,6 @@ with tab2:
         "LLM model",
         options=["gpt-5-mini", "gpt-5.2"],
         index=0,
-        help="gpt-5-mini is cheaper/faster; gpt-5.2 is stronger.",
         key="tab2_model_choice",
     )
 
@@ -707,22 +665,17 @@ with tab3:
         key="tab3_model_choice",
     )
 
-    # Build / refresh grounded context
     context_pack = build_llm_context_pack(outputs, var_types_ss, llm_payload)
 
-    # Initialize or refresh chat messages
     if st.session_state["qa_messages"] is None:
         st.session_state["qa_messages"] = [{"role": "system", "content": context_pack}]
     else:
         st.session_state["qa_messages"][0] = {"role": "system", "content": context_pack}
 
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        if st.button("Reset chat", key="tab3_reset_chat"):
-            st.session_state["qa_messages"] = [{"role": "system", "content": context_pack}]
-            st.rerun()
+    if st.button("Reset chat", key="tab3_reset_chat"):
+        st.session_state["qa_messages"] = [{"role": "system", "content": context_pack}]
+        st.rerun()
 
-    # Show chat history (skip system)
     for msg in st.session_state["qa_messages"][1:]:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
