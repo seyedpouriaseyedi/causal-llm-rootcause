@@ -734,20 +734,22 @@ def run_daggnn_bootstrap(
 
     print(f"\nRunning {ALG_NAME}...\nOutput directory: {alg_dir}")
 
-    # Notebook variable selection: classify -> choose_discovery_vars(roles)
-    roles = classify_variable_roles_basic(df_num)
-    subset_cols = choose_discovery_vars(roles, keep_continuous_only=True)
+    # Notebook-style: continuous = numeric dtype AND many unique values (>10)
+    subset_cols = [
+        c for c in df_num.columns
+        if pd.api.types.is_numeric_dtype(df_num[c]) and df_num[c].nunique(dropna=True) > 10
+    ]
+
 
     if len(subset_cols) < 2:
-        print(f"{ALG_NAME} skipped: Not enough continuous variables (need ≥2).")
-    return {
-        "alg_dir": alg_dir,
-        "skipped": True,
-        "reason": "not_enough_continuous_vars",
-        "n_selected": len(subset_cols),
-        "selected_vars": subset_cols,
-        "roles": roles,
-    }
+        return {
+            "alg_dir": alg_dir,
+            "skipped": True,
+            "reason": "not_enough_continuous_vars",
+            "n_selected": len(subset_cols),
+            "selected_vars": subset_cols,
+            "roles": roles,
+        }
 
     print(f"Bootstrapping DAG-GNN with stronger model (hidden_dim=128, iters=500, lam=0.0001)")
 
