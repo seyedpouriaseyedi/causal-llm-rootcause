@@ -739,7 +739,7 @@ def run_daggnn_bootstrap(
     subset_cols = choose_discovery_vars(roles, keep_continuous_only=True)
 
     if len(subset_cols) < 2:
-    print(f"{ALG_NAME} skipped: Not enough continuous variables (need ≥2).")
+        print(f"{ALG_NAME} skipped: Not enough continuous variables (need ≥2).")
     return {
         "alg_dir": alg_dir,
         "skipped": True,
