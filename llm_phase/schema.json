@@ -1,1 +1,23 @@
+{
+  "type": "object",
+  "required": ["target", "incident_index", "top_cause", "alternatives", "recommended_actions", "validation_tests", "limitations"],
+  "properties": {
+    "target": {"type": "string"},
+    "incident_index": {"type": "integer"},
+    "top_cause": {
+      "type": "object",
+      "required": ["variable", "confidence", "causal_chain", "evidence_points"],
+      "properties": {
+        "variable": {"type": "string"},
+        "confidence": {"type": "number"},
+        "causal_chain": {"type": "array", "items": {"type": "string"}},
+        "evidence_points": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "alternatives": {"type": "array"},
+    "recommended_actions": {"type": "array"},
+    "validation_tests": {"type": "array"},
+    "limitations": {"type": "array"}
+  }
+}
 
