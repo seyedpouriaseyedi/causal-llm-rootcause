@@ -1,4 +1,3 @@
-# llm_phase/pipeline.py
 import os
 import json
 import pandas as pd
@@ -21,13 +20,6 @@ def generate_root_cause_report_inputs(
     min_support_mean: float = 0.30,
     max_path_len: int = 4,
 ) -> dict:
-    """
-    Deterministic pre-LLM synthesis:
-      1) normalize edges from algorithms
-      2) build consensus graph
-      3) rank candidates toward target
-      4) build incident evidence for top candidates
-    """
     os.makedirs(work_dir, exist_ok=True)
 
     norm_dir = os.path.join(work_dir, "normalized")
@@ -37,7 +29,7 @@ def generate_root_cause_report_inputs(
     # 1) normalize
     norm_paths = normalize_edges_from_outputs(outputs, norm_dir)
 
-    # 2) consensus (add all variables as nodes so target exists even with no edges)
+    # 2) consensus
     all_vars = list(df_clean.columns)
     cons = build_consensus_edges(
         norm_paths,
@@ -47,7 +39,7 @@ def generate_root_cause_report_inputs(
         all_variables=all_vars,
     )
 
-    # 3) ranking (safe even if no paths exist)
+    # 3) ranking
     ranked = rank_root_causes(
         cons["consensus_graph_path"],
         target,
@@ -60,7 +52,7 @@ def generate_root_cause_report_inputs(
     allowed_vars = set(G.nodes())
     allowed_edges = set((u, v) for u, v in G.edges())
 
-    # Load ranked candidates (if exists) and choose top candidates for evidence
+    # Load ranked candidates (if exists)
     cand_path = ranked.get("candidates_path")
     cand_df = None
     if cand_path and os.path.exists(cand_path):
@@ -69,7 +61,7 @@ def generate_root_cause_report_inputs(
         except Exception:
             cand_df = None
 
-    if cand_df is not None and (not cand_df.empty):
+    if cand_df is not None and (not cand_df.empty) and ("candidate" in cand_df.columns):
         top_candidates = cand_df.head(5)["candidate"].tolist()
     else:
         top_candidates = []
@@ -90,7 +82,7 @@ def generate_root_cause_report_inputs(
             "top_paths_path": ranked.get("top_paths_path"),
             "top_candidates": top_candidates,
         },
-        "ranking_meta": {  # ✅ makes Streamlit messaging easier
+        "ranking_meta": {
             "skipped": bool(ranked.get("skipped", False)),
             "reason": ranked.get("reason", None),
             "target": target,
@@ -126,15 +118,22 @@ def build_prompt(prompt_template_path: str, payload: dict, target: str, incident
         [f"{a} -> {b}" for a, b in (tuple(x) for x in payload.get("allowed_edges", []))]
     )
 
-    prompt = tmpl.format(
-        target=target,
-        incident_index=incident_index,
-        allowed_variables="\n".join(payload.get("allowed_vars", [])),
-        allowed_edges=allowed_edges_lines,
-        ranked_candidates_table=ranked_candidates_table,
-        top_paths_json=top_paths_json,
-        incident_evidence_json=json.dumps(payload.get("incident_evidence", {}), indent=2),
-    )
+    try:
+        prompt = tmpl.format(
+            target=target,
+            incident_index=incident_index,
+            allowed_variables="\n".join(payload.get("allowed_vars", [])),
+            allowed_edges=allowed_edges_lines,
+            ranked_candidates_table=ranked_candidates_table,
+            top_paths_json=top_paths_json,
+            incident_evidence_json=json.dumps(payload.get("incident_evidence", {}), indent=2),
+        )
+    except KeyError as e:
+        raise KeyError(
+            f"Prompt template contains an unknown placeholder {e}. "
+            f"If you included literal JSON braces {{ }} in the template, escape them as {{ {{ and }} }}."
+        )
+
     return prompt
 
 
