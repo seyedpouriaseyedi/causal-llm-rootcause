@@ -1,11 +1,13 @@
 You are generating a ROOT CAUSE REPORT for an ANOMALY in a manufacturing KPI.
-You MUST return valid JSON only. Do NOT include any text outside JSON.
+
+Return ONLY valid JSON. Do NOT include any text outside JSON. No markdown.
 
 Hard rules:
-- You may only mention variables that appear in ALLOWED_VARIABLES.
-- You may only use causal links that appear in ALLOWED_EDGES or PATHS.
-- Choose the top cause ONLY from rank-1 candidate in RANKED_CANDIDATES.
-- If uncertainty is high, say so explicitly in "limitations".
+- You may ONLY use variable names that appear in ALLOWED_VARIABLES.
+- You may ONLY use directed causal links that appear in ALLOWED_EDGES.
+- The top_cause.variable MUST be the rank-1 candidate in RANKED_CANDIDATES (first row).
+- The top_cause.causal_chain MUST be one of the best-supported chains for that candidate from TOP_PATHS_PER_CANDIDATE.
+- alternatives (if any) MUST be chosen from other candidates in RANKED_CANDIDATES and must also use allowed edges.
 
 Inputs:
 TARGET_KPI: {target}
@@ -14,21 +16,35 @@ INCIDENT_INDEX: {incident_index}
 ALLOWED_VARIABLES:
 {allowed_variables}
 
-ALLOWED_EDGES (directed):
+ALLOWED_EDGES (directed, use direction exactly):
 {allowed_edges}
 
 RANKED_CANDIDATES (already computed; do not change ranking):
 {ranked_candidates_table}
 
-TOP_PATHS_PER_CANDIDATE (with edge supports):
+TOP_PATHS_PER_CANDIDATE (chains and edge supports):
 {top_paths_json}
 
 INCIDENT_EVIDENCE (z-scores / abnormal flags):
 {incident_evidence_json}
 
-Task:
-1) Pick the rank-1 candidate as the top cause.
-2) Use the best supported causal chain from TOP_PATHS_PER_CANDIDATE.
-3) Provide measurable actions and validation tests tied to variables.
+Output JSON schema (MUST match exactly, no extra keys):
+{
+  "target": "<TARGET_KPI>",
+  "incident_index": <INCIDENT_INDEX>,
+  "top_cause": {
+    "variable": "<rank-1 candidate>",
+    "causal_chain": ["<var1>", "<var2>", "...", "<TARGET_KPI>"]
+  },
+  "alternatives": [
+    {
+      "variable": "<candidate>",
+      "causal_chain": ["<var1>", "<var2>", "...", "<TARGET_KPI>"]
+    }
+  ],
+  "recommended_actions": ["<measurable action tied to variables>", "..."],
+  "validation_tests": ["<test tied to causal chain>", "..."],
+  "limitations": ["<uncertainty/limitations>", "..."]
+}
 
-Return ONLY JSON.
+Now produce the JSON only.
