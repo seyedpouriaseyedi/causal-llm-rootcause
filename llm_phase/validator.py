@@ -1,92 +1,96 @@
 # llm_phase/validator.py
 import json
-import re
-from typing import Any, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 
-def _collect_all_strings(x: Any) -> List[str]:
-    out = []
-    if isinstance(x, str):
-        out.append(x)
-    elif isinstance(x, list):
-        for i in x:
-            out.extend(_collect_all_strings(i))
-    elif isinstance(x, dict):
-        for v in x.values():
-            out.extend(_collect_all_strings(v))
-    return out
+REQUIRED_KEYS = [
+    "target",
+    "incident_index",
+    "top_cause",
+    "alternatives",
+    "recommended_actions",
+    "validation_tests",
+    "limitations",
+]
+
+
+def _ensure_list_of_str(x: Any, field: str) -> List[str]:
+    if x is None:
+        return []
+    if not isinstance(x, list) or any(not isinstance(i, str) for i in x):
+        raise ValueError(f"{field} must be a list of strings")
+    return x
+
+
+def _validate_cause_obj(
+    cause: Any,
+    allowed_vars: Set[str],
+    allowed_edges: Set[Tuple[str, str]],
+    field_name: str,
+) -> Dict[str, Any]:
+    if not isinstance(cause, dict):
+        raise ValueError(f"{field_name} must be an object/dict")
+
+    if "variable" not in cause or "causal_chain" not in cause:
+        raise ValueError(f"{field_name} must contain keys: variable, causal_chain")
+
+    var = cause.get("variable")
+    chain = cause.get("causal_chain")
+
+    if var not in allowed_vars:
+        raise ValueError(f"{field_name}.variable not allowed: {var}")
+
+    if not isinstance(chain, list) or len(chain) < 2 or any(not isinstance(x, str) for x in chain):
+        raise ValueError(f"{field_name}.causal_chain must be a list of >=2 strings")
+
+    for node in chain:
+        if node not in allowed_vars:
+            raise ValueError(f"{field_name}.causal_chain uses forbidden variable: {node}")
+
+    for a, b in zip(chain[:-1], chain[1:]):
+        if (a, b) not in allowed_edges:
+            raise ValueError(f"{field_name}.causal_chain uses forbidden edge: {a} -> {b}")
+
+    return {"variable": var, "causal_chain": chain}
 
 
 def validate_llm_json(text: str, allowed_vars: Set[str], allowed_edges: Set[Tuple[str, str]]) -> dict:
-    """
-    Validates:
-      1) Output is JSON
-      2) Required keys exist (minimal schema check)
-      3) top_cause.variable must be allowed
-      4) top_cause.causal_chain must use only allowed edges
-      5) No forbidden variable names appear anywhere in the JSON text fields
-    """
     try:
         obj = json.loads(text)
     except Exception as e:
         raise ValueError(f"LLM output is not valid JSON: {e}")
 
-    # ---- minimal required keys ----
-    required_keys = ["target", "incident_index", "top_cause", "alternatives", "recommended_actions", "validation_tests", "limitations"]
-    for k in required_keys:
+    # Required keys
+    for k in REQUIRED_KEYS:
         if k not in obj:
             raise ValueError(f"Missing key: {k}")
 
-    if not isinstance(obj["top_cause"], dict):
-        raise ValueError("top_cause must be an object/dict")
+    # target sanity
+    if not isinstance(obj["target"], str):
+        raise ValueError("target must be a string")
+    # Optional strictness: require target in allowed_vars
+    if obj["target"] not in allowed_vars:
+        raise ValueError(f"target not allowed: {obj['target']}")
 
-    # ---- top cause variable must be allowed ----
-    top_var = obj["top_cause"].get("variable")
-    if top_var not in allowed_vars:
-        raise ValueError(f"Top cause variable not allowed: {top_var}")
+    # incident_index sanity
+    if not isinstance(obj["incident_index"], int):
+        raise ValueError("incident_index must be an integer")
 
-    # ---- causal_chain edges must be allowed ----
-    chain = obj["top_cause"].get("causal_chain", [])
-    if not isinstance(chain, list) or len(chain) < 2:
-        raise ValueError("top_cause.causal_chain must be a list of >=2 variables")
+    # top cause
+    obj["top_cause"] = _validate_cause_obj(obj["top_cause"], allowed_vars, allowed_edges, "top_cause")
 
-    for a, b in zip(chain[:-1], chain[1:]):
-        if (a, b) not in allowed_edges:
-            raise ValueError(f"Causal chain uses forbidden edge: {a} -> {b}")
+    # alternatives: list of cause objects
+    if not isinstance(obj["alternatives"], list):
+        raise ValueError("alternatives must be a list")
 
-    # ---- forbid mentioning variables not in allowed_vars anywhere ----
-    # We scan all strings and look for exact variable name occurrences as whole tokens.
-    all_strings = _collect_all_strings(obj)
-    combined_text = "\n".join(all_strings)
+    cleaned_alts = []
+    for i, alt in enumerate(obj["alternatives"]):
+        cleaned_alts.append(_validate_cause_obj(alt, allowed_vars, allowed_edges, f"alternatives[{i}]"))
+    obj["alternatives"] = cleaned_alts
 
-    # Build regex for forbidden variables (only those that appear in text)
-    # (We can't enumerate all possible words; we block exact matches for known column names.)
-    for var in sorted(list(allowed_vars)):
-        pass  # just to keep intent clear
-
-    # Find any variable-like tokens in text and compare to allowed vars
-    # This is conservative: it catches explicit mentions of dataset variables.
-    # It won't catch subtle paraphrases, which is fine.
-    # Tokenization: split on non-word plus allow spaces by scanning for exact var substring boundaries.
-    for maybe_var in _extract_possible_var_mentions(combined_text):
-        if maybe_var not in allowed_vars:
-            raise ValueError(f"Output mentions forbidden variable: '{maybe_var}'")
+    # lists of strings
+    obj["recommended_actions"] = _ensure_list_of_str(obj.get("recommended_actions"), "recommended_actions")
+    obj["validation_tests"] = _ensure_list_of_str(obj.get("validation_tests"), "validation_tests")
+    obj["limitations"] = _ensure_list_of_str(obj.get("limitations"), "limitations")
 
     return obj
-
-
-def _extract_possible_var_mentions(text: str) -> Set[str]:
-    """
-    Extracts phrases that look like dataset variables by matching patterns like:
-    - words with spaces (e.g., "Air temperature")
-    - words with underscores (e.g., "Tool_wear")
-    We do this by scanning for sequences of letters/numbers/space/underscore.
-    """
-    candidates = set()
-    # pick up sequences that look like variable names (length >= 3)
-    for m in re.finditer(r"[A-Za-z0-9_][A-Za-z0-9_ ]{2,}", text):
-        s = m.group(0).strip()
-        # remove trailing punctuation-like spaces
-        s = re.sub(r"\s+", " ", s)
-        candidates.add(s)
-    return candidates
