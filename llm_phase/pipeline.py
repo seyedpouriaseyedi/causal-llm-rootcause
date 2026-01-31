@@ -1,3 +1,4 @@
+# llm_phase/pipeline.py
 import os
 import json
 import pandas as pd
@@ -20,6 +21,13 @@ def generate_root_cause_report_inputs(
     min_support_mean: float = 0.30,
     max_path_len: int = 4,
 ) -> dict:
+    """
+    Deterministic pre-LLM synthesis:
+      1) normalize edges from algorithms
+      2) build consensus graph
+      3) rank candidates toward target
+      4) build incident evidence for top candidates
+    """
     os.makedirs(work_dir, exist_ok=True)
 
     norm_dir = os.path.join(work_dir, "normalized")
@@ -29,7 +37,7 @@ def generate_root_cause_report_inputs(
     # 1) normalize
     norm_paths = normalize_edges_from_outputs(outputs, norm_dir)
 
-    # 2) consensus
+    # 2) consensus (add all variables as nodes so target exists even with no edges)
     all_vars = list(df_clean.columns)
     cons = build_consensus_edges(
         norm_paths,
@@ -39,7 +47,7 @@ def generate_root_cause_report_inputs(
         all_variables=all_vars,
     )
 
-    # 3) ranking
+    # 3) ranking (safe even if no paths exist)
     ranked = rank_root_causes(
         cons["consensus_graph_path"],
         target,
