@@ -1,3 +1,4 @@
+# Streamlit_app.py
 import os
 import json
 from datetime import datetime
@@ -13,9 +14,6 @@ from llm_phase.pipeline import (
     build_prompt,
     run_llm_and_validate,
 )
-
-from llm_phase.openai_client import generate_root_cause_report_json, chat_grounded
-
 
 # =========================================
 # Session defaults
@@ -34,8 +32,6 @@ if "llm_payload_sig" not in st.session_state:
     st.session_state["llm_payload_sig"] = None
 if "run_id" not in st.session_state:
     st.session_state["run_id"] = datetime.now().strftime("%Y%m%d_%H%M%S")
-if "qa_messages" not in st.session_state:
-    st.session_state["qa_messages"] = None
 
 
 # =========================================
@@ -43,6 +39,11 @@ if "qa_messages" not in st.session_state:
 # =========================================
 st.set_page_config(page_title="Causal Discovery App", layout="wide")
 st.title("Causal Discovery App")
+
+# Reset button (kills state)
+if st.button("🔄 Reset app (clear session)", key="btn_reset_app"):
+    st.session_state.clear()
+    st.rerun()
 
 
 # =========================================
@@ -229,7 +230,7 @@ else:
 # =========================================
 # Tabs
 # =========================================
-tab1, tab2, tab3 = st.tabs(["Causal Discovery", "LLM Root Cause Report", "LLM Q&A (Grounded)"])
+tab1, tab2, tab3 = st.tabs(["Causal Discovery", "LLM Root Cause Report (Manual)", "LLM Q&A (Manual Prompt)"])
 
 
 # =========================================
@@ -345,11 +346,11 @@ with tab1:
         st.session_state["df_clean"] = df_clean
         st.session_state["var_types_clean"] = var_types_clean
 
+        # reset llm state
         st.session_state["llm_payload"] = None
         st.session_state["llm_payload_sig"] = None
         st.session_state["llm_work_dir"] = None
         st.session_state["run_id"] = datetime.now().strftime("%Y%m%d_%H%M%S")
-        st.session_state["qa_messages"] = None
 
     outputs = st.session_state.get("cd_outputs")
     if outputs is None:
@@ -357,18 +358,15 @@ with tab1:
     else:
         st.markdown("---")
         st.subheader("Results Summary")
-
         st.write("**Output directory:**", outputs.get("out_dir"))
         st.write("**Numeric cols used:**", outputs.get("numeric_cols"))
 
         runs = outputs.get("runs", {})
 
         if "NOTEARS" in runs:
-            st.markdown("## NOTEARS (Bootstrapped)")
+            st.markdown("## NOTEARS")
             info = runs["NOTEARS"]
-            st.write("Algorithm directory:", info.get("alg_dir"))
             _show_file_links({
-                "adj": info.get("adj_path"),
                 "edges": info.get("edges_path"),
                 "graph": info.get("graph_path"),
                 "summary": info.get("summary_path"),
@@ -380,24 +378,19 @@ with tab1:
                 _maybe_show_png(info["alg_dir"], "FINAL_graph_NOTEARS.png")
 
         if "GES" in runs:
-            st.markdown("## GES (Bootstrap Stability)")
+            st.markdown("## GES")
             info = runs["GES"]
-            st.write("Algorithm directory:", info.get("alg_dir"))
             stable_path = info.get("stable_edges_path")
             if stable_path and os.path.exists(stable_path):
                 _show_file_links({"stable_edges": stable_path})
                 stable_df = _safe_read_csv(stable_path)
                 if stable_df is not None:
                     st.dataframe(stable_df.head(50), use_container_width=True)
-            if save_plots and info.get("alg_dir"):
-                _maybe_show_png(info["alg_dir"], "STABLE_graph_GES.png")
 
         if "LiNGAM" in runs:
-            st.markdown("## LiNGAM (Bootstrapped)")
+            st.markdown("## LiNGAM")
             info = runs["LiNGAM"]
-            st.write("Algorithm directory:", info.get("alg_dir"))
             _show_file_links({
-                "adj": info.get("adj_path"),
                 "edges": info.get("edges_path"),
                 "graph": info.get("graph_path"),
                 "summary": info.get("summary_path"),
@@ -405,22 +398,14 @@ with tab1:
             edges_df = _safe_read_csv(info.get("edges_path", ""))
             if edges_df is not None:
                 st.dataframe(edges_df.head(50), use_container_width=True)
-            if save_plots and info.get("alg_dir"):
-                _maybe_show_png(info["alg_dir"], "FINAL_graph_LiNGAM_Bootstrap.png")
 
         if "DAGGNN" in runs:
-            st.markdown("## DAG-GNN (Bootstrapped)")
+            st.markdown("## DAG-GNN")
             info = runs["DAGGNN"]
             if info.get("skipped"):
                 st.warning(f"DAG-GNN skipped: {info.get('reason', 'unknown')}")
-                if "selected_vars" in info:
-                    st.write("Selected vars:", info["selected_vars"])
-                if "roles" in info:
-                    st.json(info["roles"])
             else:
-                st.write("Algorithm directory:", info.get("alg_dir"))
                 _show_file_links({
-                    "adj": info.get("adj_path"),
                     "edges": info.get("edges_path"),
                     "graph": info.get("graph_path"),
                     "summary": info.get("summary_path"),
@@ -428,18 +413,14 @@ with tab1:
                 edges_df = _safe_read_csv(info.get("edges_path", ""))
                 if edges_df is not None:
                     st.dataframe(edges_df.head(50), use_container_width=True)
-                if save_plots and info.get("alg_dir"):
-                    _maybe_show_png(info["alg_dir"], "FINAL_graph_DAG-GNN_Bootstrap.png")
 
         if "PC" in runs:
-            st.markdown("## PC (Bootstrapped)")
+            st.markdown("## PC")
             info = runs["PC"]
-            st.write("Algorithm directory:", info.get("alg_dir"))
             if info.get("skipped"):
-                st.warning("PC skipped (not enough variables after filtering).")
+                st.warning("PC skipped.")
             else:
                 _show_file_links({
-                    "adj": info.get("adj_path"),
                     "edges": info.get("edges_path"),
                     "graph": info.get("graph_path"),
                     "summary": info.get("summary_path"),
@@ -447,16 +428,14 @@ with tab1:
                 edges_df = _safe_read_csv(info.get("edges_path", ""))
                 if edges_df is not None:
                     st.dataframe(edges_df.head(50), use_container_width=True)
-                if save_plots and info.get("alg_dir"):
-                    _maybe_show_png(info["alg_dir"], "FINAL_graph_PC_Bootstrap.png")
 
 
 # =========================================
-# TAB 2 — LLM Root Cause Report
+# TAB 2 — Manual LLM report
 # =========================================
 with tab2:
     st.markdown("---")
-    st.subheader("LLM Root Cause Report (API + Validator)")
+    st.subheader("LLM Root Cause Report (Manual Paste + Validator)")
 
     if st.session_state.get("cd_outputs") is None:
         st.info("Run **Causal Discovery** first (Tab 1).")
@@ -512,7 +491,7 @@ with tab2:
     with c3:
         max_path_len = st.number_input("Max path length", min_value=2, max_value=8, value=4, step=1, key="tab2_max_path")
 
-    # Stable work dir per CD run
+    # stable work dir
     if st.session_state.get("llm_work_dir") is None:
         st.session_state["llm_work_dir"] = os.path.join(
             outputs.get("out_dir", "outputs_step2"),
@@ -526,7 +505,7 @@ with tab2:
     )
     st.session_state["llm_work_dir"] = work_dir
 
-    # Payload signature guard
+    # payload signature guard
     current_sig = {
         "target": target,
         "incident_index": int(incident_index),
@@ -583,7 +562,7 @@ with tab2:
     st.markdown("## Incident evidence (top candidates)")
     st.json(payload.get("incident_evidence", {}))
 
-    st.markdown("## Consensus outputs")
+    st.markdown("## Consensus / ranking outputs")
     _show_file_links({
         "consensus_edges": payload["consensus"]["consensus_edges_path"],
         "consensus_graph": payload["consensus"]["consensus_graph_path"],
@@ -593,10 +572,9 @@ with tab2:
     })
 
     # Build prompt
-    st.markdown("## Prompt (used for API call)")
+    st.markdown("## Prompt (copy into ChatGPT)")
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     prompt_template_path = os.path.join(BASE_DIR, "llm_phase", "prompt_template.txt")
-
     if not os.path.exists(prompt_template_path):
         st.error(f"Prompt template not found at: {prompt_template_path}")
         st.stop()
@@ -607,48 +585,53 @@ with tab2:
         target=target,
         incident_index=int(incident_index),
     )
-    st.text_area("Prompt (read-only)", value=prompt, height=320, key="tab2_prompt_view")
+    st.text_area("Prompt", value=prompt, height=360, key="tab2_prompt_view")
 
-    # LLM API mode
-    st.markdown("## Generate report via API (no manual copy/paste)")
+    # Manual paste + validate
+    st.markdown("## Paste LLM JSON here → Validate")
+    st.caption("Paste ONLY JSON. No markdown. No explanation. The validator enforces allowed vars/edges and path direction.")
 
-    model_choice = st.selectbox(
-        "LLM model",
-        options=["gpt-5-mini", "gpt-5.2"],
-        index=0,
-        key="tab2_model_choice",
-    )
+    llm_json_text = st.text_area("LLM JSON response", value="", height=280, key="tab2_llm_json_paste")
 
-    if st.button("Run LLM via API + Validate", type="primary", key="btn_run_llm_api"):
+    if st.button("Validate pasted JSON", type="primary", key="btn_validate_paste"):
         allowed_vars = set(payload.get("allowed_vars", []))
         allowed_edges = set((a, b) for a, b in payload.get("allowed_edges", []))
 
         try:
-            with st.spinner("Calling LLM API..."):
-                report_json = generate_root_cause_report_json(prompt=prompt, model=model_choice)
-
             parsed_valid = run_llm_and_validate(
-                call_llm_fn=lambda _prompt: json.dumps(report_json),
-                prompt=prompt,
+                call_llm_fn=lambda _prompt: llm_json_text,
+                prompt="(manual paste)",
                 allowed_vars=allowed_vars,
                 allowed_edges=allowed_edges,
             )
-
             st.success("LLM output is valid and compliant.")
             st.json(parsed_valid)
 
-        except RuntimeError as e:
-            st.error(str(e))
+            # Save + download
+            os.makedirs(work_dir, exist_ok=True)
+            out_path = os.path.join(work_dir, f"report_{target}_idx_{int(incident_index)}.json")
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(parsed_valid, f, indent=2)
+
+            with open(out_path, "rb") as f:
+                st.download_button(
+                    "Download validated report JSON",
+                    data=f,
+                    file_name=os.path.basename(out_path),
+                    mime="application/json",
+                    key="dl_validated_report",
+                )
+
         except Exception as e:
-            st.error(f"LLM API / validation failed: {e}")
+            st.error(f"Validation failed: {e}")
 
 
 # =========================================
-# TAB 3 — LLM Q&A (Grounded) — Live Chat (API)
+# TAB 3 — Manual grounded prompt generator
 # =========================================
 with tab3:
     st.markdown("---")
-    st.subheader("LLM Q&A (Grounded) — Live Chat (API)")
+    st.subheader("LLM Q&A (Manual) — Prompt Generator")
 
     if st.session_state.get("cd_outputs") is None:
         st.info("Run **Causal Discovery** first (Tab 1).")
@@ -658,49 +641,14 @@ with tab3:
     var_types_ss = st.session_state.get("var_types_clean")
     llm_payload = st.session_state.get("llm_payload")
 
-    model_choice = st.selectbox(
-        "Chat model",
-        options=["gpt-5-mini", "gpt-5.2"],
-        index=0,
-        key="tab3_model_choice",
+    question = st.text_area(
+        "Your question to ask in ChatGPT",
+        value="Explain the strongest and most consistent relationships across algorithms. What should I monitor if Torque becomes anomalous?",
+        height=120,
+        key="tab3_question",
     )
 
     context_pack = build_llm_context_pack(outputs, var_types_ss, llm_payload)
+    final_prompt = f"{context_pack}\n\nUSER QUESTION:\n{question}\n\nANSWER:\n"
 
-    if st.session_state["qa_messages"] is None:
-        st.session_state["qa_messages"] = [{"role": "system", "content": context_pack}]
-    else:
-        st.session_state["qa_messages"][0] = {"role": "system", "content": context_pack}
-
-    if st.button("Reset chat", key="tab3_reset_chat"):
-        st.session_state["qa_messages"] = [{"role": "system", "content": context_pack}]
-        st.rerun()
-
-    for msg in st.session_state["qa_messages"][1:]:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
-
-    user_text = st.chat_input("Ask about the graphs / candidates / evidence...", key="tab3_chat_input")
-
-    if user_text:
-        st.session_state["qa_messages"].append({"role": "user", "content": user_text})
-
-        with st.chat_message("user"):
-            st.write(user_text)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Calling LLM API..."):
-                try:
-                    answer = chat_grounded(
-                        messages=st.session_state["qa_messages"],
-                        model=model_choice,
-                        verbosity="medium",
-                    )
-                except RuntimeError as e:
-                    answer = str(e)
-                except Exception as e:
-                    answer = f"API error: {e}"
-
-            st.write(answer)
-
-        st.session_state["qa_messages"].append({"role": "assistant", "content": answer})
+    st.text_area("Copy this prompt into ChatGPT", value=final_prompt, height=480, key="tab3_prompt")
