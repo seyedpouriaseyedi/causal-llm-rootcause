@@ -74,6 +74,9 @@ def chat_grounded(
     model: str = "gpt-5-mini",
     verbosity: str = "medium",
 ) -> str:
+    """
+    Normal chat call (no schema). Uses Responses API.
+    """
     client = _client()
 
     resp = client.responses.create(
@@ -87,17 +90,4 @@ def chat_grounded(
     if isinstance(text, str) and text.strip():
         return text.strip()
 
-    # Last-resort fallback (should rarely happen)
-    return ""
-
-
-    if hasattr(resp, "output_text") and resp.output_text:
-        return resp.output_text
-
-    out = []
-    for item in getattr(resp, "output", []) or []:
-        if item.get("type") == "message":
-            for c in item.get("content", []) or []:
-                if c.get("type") == "output_text" and c.get("text"):
-                    out.append(c["text"])
-    return "\n".join(out).strip()
+    return "No text returned by the model."
