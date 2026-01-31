@@ -1,13 +1,14 @@
-You are generating a ROOT CAUSE REPORT for a manufacturing incident.
-You MUST follow the JSON schema exactly. Do NOT include any text outside JSON.
+You are generating a ROOT CAUSE REPORT for an ANOMALY in a manufacturing KPI.
+You MUST return valid JSON only. Do NOT include any text outside JSON.
 
 Hard rules:
 - You may only mention variables that appear in ALLOWED_VARIABLES.
 - You may only use causal links that appear in ALLOWED_EDGES or PATHS.
+- Choose the top cause ONLY from rank-1 candidate in RANKED_CANDIDATES.
 - If uncertainty is high, say so explicitly in "limitations".
 
 Inputs:
-TARGET: {target}
+TARGET_KPI: {target}
 INCIDENT_INDEX: {incident_index}
 
 ALLOWED_VARIABLES:
@@ -26,9 +27,8 @@ INCIDENT_EVIDENCE (z-scores / abnormal flags):
 {incident_evidence_json}
 
 Task:
-1) Choose the top cause from rank-1 candidate.
-2) Use the best supported causal chain from PATHS.
-3) Provide recommended actions and tests that are measurable and tied to variables.
+1) Pick the rank-1 candidate as the top cause.
+2) Use the best supported causal chain from TOP_PATHS_PER_CANDIDATE.
+3) Provide measurable actions and validation tests tied to variables.
 
 Return ONLY JSON.
-
