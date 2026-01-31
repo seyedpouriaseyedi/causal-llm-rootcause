@@ -295,6 +295,10 @@ if st.button("Run Causal Discovery", type="primary"):
         info = runs["DAGGNN"]
         if info.get("skipped"):
             st.warning(f"DAG-GNN skipped: {info.get('reason', 'unknown')}")
+            if "selected_vars" in info:
+                st.write("Selected vars:", info["selected_vars"])
+            if "roles" in info:
+                st.json(info["roles"])
         else:
             st.write("Algorithm directory:", info.get("alg_dir"))
             _show_file_links({
