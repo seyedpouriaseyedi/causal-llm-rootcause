@@ -1,4 +1,3 @@
-# llm_phase/validator.py
 import json
 from typing import Any, Dict, List, Set, Tuple
 
@@ -24,6 +23,7 @@ def _ensure_list_of_str(x: Any, field: str) -> List[str]:
 
 def _validate_cause_obj(
     cause: Any,
+    target: str,
     allowed_vars: Set[str],
     allowed_edges: Set[Tuple[str, str]],
     field_name: str,
@@ -37,16 +37,28 @@ def _validate_cause_obj(
     var = cause.get("variable")
     chain = cause.get("causal_chain")
 
+    if not isinstance(var, str):
+        raise ValueError(f"{field_name}.variable must be a string")
+
     if var not in allowed_vars:
         raise ValueError(f"{field_name}.variable not allowed: {var}")
 
     if not isinstance(chain, list) or len(chain) < 2 or any(not isinstance(x, str) for x in chain):
         raise ValueError(f"{field_name}.causal_chain must be a list of >=2 strings")
 
+    # Must start at the stated variable and end at the report target
+    if chain[0] != var:
+        raise ValueError(f"{field_name}.causal_chain must start with variable '{var}' (got '{chain[0]}')")
+
+    if chain[-1] != target:
+        raise ValueError(f"{field_name}.causal_chain must end with target '{target}' (got '{chain[-1]}')")
+
+    # Variables must be allowed
     for node in chain:
         if node not in allowed_vars:
             raise ValueError(f"{field_name}.causal_chain uses forbidden variable: {node}")
 
+    # Edges must be allowed
     for a, b in zip(chain[:-1], chain[1:]):
         if (a, b) not in allowed_edges:
             raise ValueError(f"{field_name}.causal_chain uses forbidden edge: {a} -> {b}")
@@ -60,35 +72,36 @@ def validate_llm_json(text: str, allowed_vars: Set[str], allowed_edges: Set[Tupl
     except Exception as e:
         raise ValueError(f"LLM output is not valid JSON: {e}")
 
-    # Required keys
     for k in REQUIRED_KEYS:
         if k not in obj:
             raise ValueError(f"Missing key: {k}")
 
-    # target sanity
     if not isinstance(obj["target"], str):
         raise ValueError("target must be a string")
-    # Optional strictness: require target in allowed_vars
     if obj["target"] not in allowed_vars:
         raise ValueError(f"target not allowed: {obj['target']}")
 
-    # incident_index sanity
     if not isinstance(obj["incident_index"], int):
         raise ValueError("incident_index must be an integer")
 
-    # top cause
-    obj["top_cause"] = _validate_cause_obj(obj["top_cause"], allowed_vars, allowed_edges, "top_cause")
+    target = obj["target"]
 
-    # alternatives: list of cause objects
+    obj["top_cause"] = _validate_cause_obj(
+        obj["top_cause"], target=target, allowed_vars=allowed_vars, allowed_edges=allowed_edges, field_name="top_cause"
+    )
+
     if not isinstance(obj["alternatives"], list):
         raise ValueError("alternatives must be a list")
 
     cleaned_alts = []
     for i, alt in enumerate(obj["alternatives"]):
-        cleaned_alts.append(_validate_cause_obj(alt, allowed_vars, allowed_edges, f"alternatives[{i}]"))
+        cleaned_alts.append(
+            _validate_cause_obj(
+                alt, target=target, allowed_vars=allowed_vars, allowed_edges=allowed_edges, field_name=f"alternatives[{i}]"
+            )
+        )
     obj["alternatives"] = cleaned_alts
 
-    # lists of strings
     obj["recommended_actions"] = _ensure_list_of_str(obj.get("recommended_actions"), "recommended_actions")
     obj["validation_tests"] = _ensure_list_of_str(obj.get("validation_tests"), "validation_tests")
     obj["limitations"] = _ensure_list_of_str(obj.get("limitations"), "limitations")
