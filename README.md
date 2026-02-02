@@ -1,26 +1,58 @@
 # Stabilizing LLM-Based Root Cause Explanations through Reliable Causal Discovery in Manufacturing Data
 
-This project builds a reproducible pipeline to generate **stable, grounded root-cause reports** for manufacturing KPI deviations by:
-1) learning causal graphs with multiple causal discovery algorithms (bootstrapped),
-2) aggregating them into a **consensus graph**,
-3) ranking candidate root causes via directed paths to a chosen KPI target,
-4) using a **manual LLM step** to produce a structured JSON report,
-5) validating the JSON strictly against allowed variables and directed edges.
+This project builds an end-to-end pipeline to generate **stable, grounded root-cause reports** for manufacturing KPI deviations by combining:
 
-## Repo structure
+1) **Multi-algorithm causal discovery** (bootstrapped): NOTEARS, GES, LiNGAM, DAG-GNN, PC  
+2) **Consensus graph construction** (edge aggregation + conflict handling)  
+3) **Deterministic candidate ranking** (directed paths into a target KPI)  
+4) **Manual LLM report generation** (JSON-only) + **strict validation** against allowed variables and directed edges  
+5) A **Streamlit app** that wraps the full workflow for interactive use
 
-- `Streamlit_app.py` — Streamlit UI (Causal Discovery tab + Manual LLM Report tab + Prompt Generator tab)
-- `preprocessing.py` — dataset cleaning + type detection
-- `causal_discovery.py` — bootstrapped NOTEARS / GES / LiNGAM / DAG-GNN / PC orchestration + outputs
-- `llm_phase/` — deterministic consensus + ranking + evidence + prompt builder + validator
-- `notebooks/` — development notebooks (exploration; not required for running the app)
-- `Sample_Dataset/` — demo dataset 
+Repository: https://github.com/seyedpouriaseyedi/causal-llm-rootcause
 
-## Quickstart (local)
+---
+
+## Demo workflow (what the app does)
+
+### Tab 1 — Causal Discovery
+- Upload a CSV
+- Run preprocessing
+- Configure bootstrapping and thresholds
+- Run causal discovery algorithms
+- View and download outputs (edges/graphs/summaries)
+
+### Tab 2 — LLM Root Cause Report (Manual)
+- Select a **target KPI** (e.g., Rotational speed or Torque)
+- Select an **incident** by row index or by top-|z| deviations
+- Build:
+  - consensus graph
+  - ranked candidate causes
+  - top supported causal paths
+  - incident evidence
+- Copy the prompt into ChatGPT and request **JSON only**
+- Paste JSON back into the app → validate → download the validated report
+
+### Tab 3 — LLM Q&A (Manual Prompt Generator)
+- Generates a grounded prompt using your outputs
+- You can paste it into ChatGPT for analysis/discussion (manual)
+
+---
+
+## Project structure
+
+- `Streamlit_app.py` — Streamlit UI (Causal Discovery + Manual LLM report)
+- `preprocessing.py` — preprocessing + variable type metadata
+- `causal_discovery.py` — multi-algorithm bootstrapped causal discovery + outputs
+- `llm_phase/` — deterministic LLM preparation:
+  - consensus, ranking, evidence, prompt builder, validator
+- `notebooks/` — exploration and development notebooks
+
+---
+
+## Installation (local)
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 streamlit run Streamlit_app.py
-
