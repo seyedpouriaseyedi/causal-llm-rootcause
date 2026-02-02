@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Stabilizing LLM-Based Root Cause Explanations through Reliable Causal Discovery in Manufacturing Data"
+type: software
+authors:
+  - family-names: "Seyedi"
+    given-names: "Pouria"
+repository-code: "https://github.com/seyedpouriaseyedi/causal-llm-rootcause"
+url: "https://github.com/seyedpouriaseyedi/causal-llm-rootcause"
+license: "MIT"
+year: 2026
+version: 1.0.0
+date-released: 2026-01-31
+keywords:
+  - causal discovery
+  - root cause analysis
+  - manufacturing
+  - streamlit
+  - LLM
+  - NOTEARS
+  - LiNGAM
+  - GES
+  - PC algorithm
+  - DAG-GNN
