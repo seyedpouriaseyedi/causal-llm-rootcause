@@ -1,5 +1,8 @@
 # Stabilizing LLM-Based Root Cause Explanations through Reliable Causal Discovery in Manufacturing Data
 
+**Live app:** https://causal-llm-rootcause.streamlit.app/  
+Repository: https://github.com/seyedpouriaseyedi/causal-llm-rootcause
+
 This project builds an end-to-end pipeline to generate **stable, grounded root-cause reports** for manufacturing KPI deviations by combining:
 
 1) **Multi-algorithm causal discovery** (bootstrapped): NOTEARS, GES, LiNGAM, DAG-GNN, PC  
@@ -7,8 +10,6 @@ This project builds an end-to-end pipeline to generate **stable, grounded root-c
 3) **Deterministic candidate ranking** (directed paths into a target KPI)  
 4) **Manual LLM report generation** (JSON-only) + **strict validation** against allowed variables and directed edges  
 5) A **Streamlit app** that wraps the full workflow for interactive use
-
-Repository: https://github.com/seyedpouriaseyedi/causal-llm-rootcause
 
 ---
 
